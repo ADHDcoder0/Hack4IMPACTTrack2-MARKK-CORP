@@ -1,8 +1,10 @@
 package com.example.scrapsetu.di
 
 import com.example.scrapsetu.data.repo.AuthRepository
+import com.example.scrapsetu.data.repo.GroqRepository
 import com.example.scrapsetu.data.repo.ListingRepository
 import com.example.scrapsetu.data.repo.MatchRepository
+import com.example.scrapsetu.data.repo.StorageRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -21,4 +23,10 @@ object AppModule {
 
     @Provides @Singleton
     fun provideMatchRepository(): MatchRepository = MatchRepository()
+
+    @Provides @Singleton
+    fun provideGroqRepository(): GroqRepository = GroqRepository()
+
+    @Provides @Singleton
+    fun provideStorageRepository(): StorageRepository = StorageRepository()
 }
