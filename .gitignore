@@ -13,8 +13,4 @@
 .externalNativeBuild
 .cxx
 local.properties
-/app/src/main/java/com/example/scrapsetu/data/model/Listings.kt
-/app/src/main/java/com/example/scrapsetu/view/screens/supplier/SupplierMatchScreen.kt
-/app/src/main/java/com/example/scrapsetu/view/screens/buyer/BuyerDashboardScreen.kt
-/app/src/main/java/com/example/scrapsetu/vm/MatchViewModel.kt
-/app/src/main/java/com/example/scrapsetu/view/screens/buyer/MatchStatusScreen.kt
+
