@@ -14,3 +14,10 @@
 .cxx
 local.properties
 
+# Local AI/context notes
+AI_CONTEXT.md
+UI_CONTEXT.md
+
+# Ignore Supabase migration scripts
+supabase/migrations/*.sql
+
