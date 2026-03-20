@@ -2,4 +2,11 @@
 <resources>
 
     <style name="Theme.ScrapSetu" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.ScrapSetu.Splash" parent="Theme.SplashScreen.IconBackground">
+        <item name="windowSplashScreenBackground">@color/white</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/white</item>
+        <item name="postSplashScreenTheme">@style/Theme.ScrapSetu</item>
+    </style>
 </resources>

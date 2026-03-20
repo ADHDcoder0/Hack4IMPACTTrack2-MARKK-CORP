@@ -31,6 +31,10 @@ class MatchViewModel @Inject constructor(
     private val _matchState = MutableStateFlow<MatchState>(MatchState.Idle)
     val matchState: StateFlow<MatchState> = _matchState
 
+    private var isLoadingMyMatches = false
+    private var isLoadingSupplierMatches = false
+    private var lastSupplierListingKey: String? = null
+
     fun requestMatch(listingId: String) {
         viewModelScope.launch {
             _matchState.value = MatchState.Loading
@@ -44,8 +48,10 @@ class MatchViewModel @Inject constructor(
         }
     }
 
-    fun loadMyMatches() {
+    fun loadMyMatches(forceRefresh: Boolean = false) {
+        if (isLoadingMyMatches && !forceRefresh) return
         viewModelScope.launch {
+            isLoadingMyMatches = true
             _matchState.value = MatchState.Loading
             try {
                 val buyerId = authRepo.currentUserId() ?: throw Exception("Not logged in")
@@ -53,18 +59,37 @@ class MatchViewModel @Inject constructor(
                 _matchState.value = MatchState.Idle
             } catch (e: Exception) {
                 _matchState.value = MatchState.Error(e.message ?: "Failed to load matches")
+            } finally {
+                isLoadingMyMatches = false
             }
         }
     }
 
-    fun loadSupplierMatches(listingIds: List<String>) {
+    fun loadSupplierMatches(listingIds: List<String>, forceRefresh: Boolean = false) {
+        if (isLoadingSupplierMatches && !forceRefresh) return
+
+        val normalizedIds = listingIds.distinct().sorted()
+        if (normalizedIds.isEmpty()) {
+            _supplierMatches.value = emptyList()
+            _matchState.value = MatchState.Idle
+            lastSupplierListingKey = null
+            return
+        }
+
+        val requestKey = normalizedIds.joinToString(",")
+        if (!forceRefresh && requestKey == lastSupplierListingKey) return
+
         viewModelScope.launch {
+            isLoadingSupplierMatches = true
             _matchState.value = MatchState.Loading
             try {
-                _supplierMatches.value = matchRepo.getMatchesForSupplier(listingIds)
+                _supplierMatches.value = matchRepo.getMatchesForSupplier(normalizedIds)
+                lastSupplierListingKey = requestKey
                 _matchState.value = MatchState.Idle
             } catch (e: Exception) {
                 _matchState.value = MatchState.Error(e.message ?: "Failed to load matches")
+            } finally {
+                isLoadingSupplierMatches = false
             }
         }
     }
@@ -73,12 +98,29 @@ class MatchViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 matchRepo.updateMatchStatus(matchId, status)
-                // refresh after update
-                _supplierMatches.value = _supplierMatches.value.map {
-                    if (it.id == matchId) it.copy(status = status) else it
+                _matchState.value = MatchState.Success
+                _supplierMatches.value = if (status.equals("rejected", ignoreCase = true)) {
+                    _supplierMatches.value.filterNot { it.id == matchId }
+                } else {
+                    _supplierMatches.value.map {
+                        if (it.id == matchId) it.copy(status = status) else it
+                    }
                 }
             } catch (e: Exception) {
                 _matchState.value = MatchState.Error(e.message ?: "Failed to update match")
+            }
+        }
+    }
+
+    fun revertMyRequest(matchId: String) {
+        viewModelScope.launch {
+            try {
+                val buyerId = authRepo.currentUserId() ?: throw Exception("Not logged in")
+                matchRepo.deleteBuyerMatch(matchId, buyerId)
+                _matches.value = _matches.value.filterNot { it.id == matchId }
+                _matchState.value = MatchState.Success
+            } catch (e: Exception) {
+                _matchState.value = MatchState.Error(e.message ?: "Failed to revert request")
             }
         }
     }

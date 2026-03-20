@@ -33,4 +33,36 @@ class ListingRepository {
             .update({ set("status", status) })
             { filter { eq("id", listingId) } }
     }
+
+    suspend fun updateListingDetails(
+        listingId: String,
+        wasteType: String,
+        wasteCategoryId: String?,
+        quantityKg: Double,
+        pricePerKg: Double,
+        stateCode: String?,
+        districtId: String?,
+        townCity: String?,
+        location: String,
+        description: String,
+        imageUrl: String
+    ) {
+        client.postgrest["listings"]
+            .update(
+                {
+                    set("waste_type", wasteType)
+                    set("waste_category_id", wasteCategoryId)
+                    set("quantity_kg", quantityKg)
+                    set("price_per_kg", pricePerKg)
+                    set("state_code", stateCode)
+                    set("district_id", districtId)
+                    set("town_city", townCity)
+                    set("location", location)
+                    set("description", description)
+                    set("image_url", imageUrl)
+                }
+            ) {
+                filter { eq("id", listingId) }
+            }
+    }
 }

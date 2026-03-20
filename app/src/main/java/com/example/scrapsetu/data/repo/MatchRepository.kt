@@ -3,6 +3,7 @@ package com.example.scrapsetu.data.repo
 import com.example.scrapsetu.data.model.Match
 import com.example.scrapsetu.data.remote.SupabaseClientProvider
 import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Order
 
 class MatchRepository {
 
@@ -16,7 +17,10 @@ class MatchRepository {
 
     suspend fun getBuyerMatches(buyerId: String): List<Match> {
         return client.postgrest["matches"]
-            .select { filter { eq("buyer_id", buyerId) } }
+            .select {
+                filter { eq("buyer_id", buyerId) }
+                order("created_at", Order.DESCENDING)
+            }
             .decodeList<Match>()
     }
 
@@ -33,9 +37,26 @@ class MatchRepository {
     }
 
     suspend fun getMatchesForSupplier(supplierListingIds: List<String>): List<Match> {
+        if (supplierListingIds.isEmpty()) return emptyList()
+
+        val listingIds = supplierListingIds.distinct().toSet()
         return client.postgrest["matches"]
-            .select()
+            .select { order("created_at", Order.DESCENDING) }
             .decodeList<Match>()
-            .filter { it.listingId in supplierListingIds }
+            .filter {
+                it.listingId in listingIds &&
+                    !it.status.equals("rejected", ignoreCase = true)
+            }
+    }
+
+    suspend fun deleteBuyerMatch(matchId: String, buyerId: String) {
+        client.postgrest["matches"]
+            .delete {
+                filter {
+                    eq("id", matchId)
+                    eq("buyer_id", buyerId)
+                    eq("status", "pending")
+                }
+            }
     }
 }

@@ -2,6 +2,7 @@ package com.example.scrapsetu.vm
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.scrapsetu.data.model.User
 import com.example.scrapsetu.data.repo.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,8 @@ class AuthViewModel @Inject constructor(
     val authState: StateFlow<AuthState> = _authState
     private val _userRole = MutableStateFlow<String?>(null)
     val userRole: StateFlow<String?> = _userRole
+    private val _currentUser = MutableStateFlow<User?>(null)
+    val currentUser: StateFlow<User?> = _currentUser
 
     fun signUp(email: String, password: String, name: String, role: String, location: String) {
         viewModelScope.launch {
@@ -45,10 +48,29 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun signOut() {
+    fun signOut(onCompleted: (() -> Unit)? = null) {
         viewModelScope.launch {
-            authRepo.signOut()
+            runCatching { authRepo.signOut() }
             _authState.value = AuthState.Idle
+            _userRole.value = null
+            _currentUser.value = null
+            onCompleted?.invoke()
+        }
+    }
+
+    fun restoreSessionIfAvailable() {
+        viewModelScope.launch {
+            if (_authState.value is AuthState.Loading) return@launch
+            _authState.value = AuthState.Loading
+
+            val user = authRepo.restoreSession()
+            if (user != null) {
+                _currentUser.value = user
+                _userRole.value = user.role.ifBlank { authRepo.cachedRole() }
+                _authState.value = AuthState.Success
+            } else {
+                _authState.value = AuthState.Idle
+            }
         }
     }
     fun loadUserRole() {
@@ -56,6 +78,16 @@ class AuthViewModel @Inject constructor(
             val user = authRepo.getCurrentUser()
             android.util.Log.d("AuthViewModel", "User role: ${user?.role}")
             _userRole.value = user?.role
+        }
+    }
+
+    fun loadCurrentUserDetails() {
+        viewModelScope.launch {
+            val user = authRepo.getCurrentUser()
+            _currentUser.value = user
+            if (!user?.role.isNullOrBlank()) {
+                _userRole.value = user?.role
+            }
         }
     }
 }

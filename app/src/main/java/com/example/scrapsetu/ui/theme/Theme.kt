@@ -15,10 +15,12 @@ private val ScrapSetuColorScheme = lightColorScheme(
     background = LightBackground,
     surface = White,
     onPrimary = White,
-    onSecondary = White,
-    onBackground = PrimaryDarkGreen,
-    onSurface = PrimaryDarkGreen,
-    tertiary = OrangeAccent
+    onSecondary = HeadlineGreen,
+    onBackground = HeadlineGreen,
+    onSurface = HeadlineGreen,
+    tertiary = OrangeAccent,
+    errorContainer = RejectedBackground,
+    onErrorContainer = RejectedText
 )
 
 @Composable

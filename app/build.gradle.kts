@@ -14,6 +14,9 @@ val localProperties = Properties().apply {
         load(localPropertiesFile.inputStream())
     }
 }
+val geminiApiValue = localProperties["GEMINI_API"]?.toString()
+    ?: localProperties["GEMINI_KEY"]?.toString()
+    ?: "\"\""
 android {
     namespace = "com.example.scrapsetu"
     compileSdk = 36
@@ -28,6 +31,7 @@ android {
         buildConfigField("String", "SUPABASE_URL", localProperties["SUPABASE_URL"].toString())
         buildConfigField("String", "SUPABASE_KEY", localProperties["SUPABASE_KEY"].toString())
         buildConfigField("String", "GROQ_API_KEY", localProperties["GROQ_API_KEY"].toString())
+        buildConfigField("String", "GEMINI_API_KEY", geminiApiValue)
 
     }
 
@@ -66,6 +70,7 @@ dependencies {
 
     // Core
     implementation(libs.androidx.core.ktx)
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
 
@@ -76,6 +81,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation("androidx.compose.material:material:1.7.0")
+    implementation("androidx.compose.material:material-icons-core:1.7.0")
+    implementation("androidx.compose.material:material-icons-extended:1.7.0")
 
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
@@ -85,6 +92,7 @@ dependencies {
     implementation(libs.supabase.kt)
     implementation(libs.postgrest.kt)
     implementation(libs.auth.kt)
+    implementation(libs.realtime.kt)
 // Coil
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("io.coil-kt:coil:2.6.0")
@@ -95,6 +103,11 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // Room
+    implementation("androidx.room:room-runtime:2.6.1")
+    implementation("androidx.room:room-ktx:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
 
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
