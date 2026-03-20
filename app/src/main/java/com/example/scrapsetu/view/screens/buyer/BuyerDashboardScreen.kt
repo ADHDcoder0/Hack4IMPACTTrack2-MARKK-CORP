@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
@@ -28,11 +30,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -41,6 +46,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.example.scrapsetu.data.model.Listing
 import com.example.scrapsetu.data.model.User
+import com.example.scrapsetu.ui.theme.EcoDeepForest
+import com.example.scrapsetu.ui.theme.EcoInteractionWhite
+import com.example.scrapsetu.ui.theme.EcoOnSurface
+import com.example.scrapsetu.ui.theme.EcoOnSurfaceVariant
+import com.example.scrapsetu.ui.theme.EcoSageGrowth
+import com.example.scrapsetu.ui.theme.EcoSectionMint
 import com.example.scrapsetu.view.components.AnalyticsShell
 import com.example.scrapsetu.view.components.DemandForecastChip
 import com.example.scrapsetu.vm.AnalyticsUiState
@@ -55,6 +66,9 @@ import com.example.scrapsetu.vm.MatchViewModel
 import com.example.scrapsetu.vm.SmartMatchInsightState
 import com.example.scrapsetu.vm.SmartMatchInsightViewModel
 import com.example.scrapsetu.vm.UserViewModel
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -77,10 +91,20 @@ fun BuyerDashboardScreen(
     val currentUser by authViewModel.currentUser.collectAsState()
     var selectedListing by remember { mutableStateOf<Listing?>(null) }
     val listings by listingViewModel.listings.collectAsState()
+    val vmFilteredListings by listingViewModel.filteredListings.collectAsState()
+    val selectedMaterialFilter by listingViewModel.selectedMaterialFilter.collectAsState()
+    val selectedStateFilter by listingViewModel.selectedStateFilter.collectAsState()
     val usersById by userViewModel.usersById.collectAsState()
     val uiState by listingViewModel.uiState.collectAsState()
     val matchState by matchViewModel.matchState.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    val requestedMatchIds = remember { mutableStateListOf<String>() }
+    var pendingMatchRequestId by remember { mutableStateOf<String?>(null) }
+    var draftMaterial by remember { mutableStateOf<String?>(null) }
+    var draftState by remember { mutableStateOf<String?>(null) }
+    val filterSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
 
     val isRefreshing = uiState is ListingState.Loading
     val pullRefreshState = rememberPullRefreshState(
@@ -95,21 +119,36 @@ fun BuyerDashboardScreen(
         currentUser?.id?.let { analyticsViewModel.load(userId = it) }
     }
 
-    LaunchedEffect(listings) {
-        userViewModel.loadUsersByIds(listings.map { it.supplierId })
+    LaunchedEffect(vmFilteredListings) {
+        userViewModel.loadUsersByIds(vmFilteredListings.map { it.supplierId })
     }
 
     val snackbarHostState = remember { SnackbarHostState() }
     LaunchedEffect(matchState) {
         when (matchState) {
-            is MatchState.Success -> snackbarHostState.showSnackbar("Match requested!")
-            is MatchState.Error -> snackbarHostState.showSnackbar((matchState as MatchState.Error).message)
+            is MatchState.Success -> {
+                pendingMatchRequestId?.let { requestedId ->
+                    if (!requestedMatchIds.contains(requestedId)) {
+                        requestedMatchIds.add(requestedId)
+                    }
+                }
+                pendingMatchRequestId = null
+                snackbarHostState.showSnackbar("Match requested!")
+            }
+
+            is MatchState.Error -> {
+                pendingMatchRequestId = null
+                snackbarHostState.showSnackbar((matchState as MatchState.Error).message)
+            }
+
             else -> Unit
         }
     }
 
-    if (selectedListing != null) {
+    selectedListing?.let { listing ->
         SmartMatchDialog(
+            selectedListing = listing,
+            seller = usersById[listing.supplierId],
             groqState = groqState,
             onDismiss = {
                 selectedListing = null
@@ -117,7 +156,7 @@ fun BuyerDashboardScreen(
                 smartMatchInsightViewModel.reset()
             },
             onRequest = {
-                selectedListing?.id?.let { id ->
+                listing.id?.let { id ->
                     matchViewModel.requestMatch(id)
                 }
                 selectedListing = null
@@ -166,7 +205,7 @@ fun BuyerDashboardScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        val filtered = listings.filter {
+        val filtered = vmFilteredListings.filter {
             it.wasteType.contains(searchQuery, ignoreCase = true) ||
                     it.location.contains(searchQuery, ignoreCase = true)
         }
@@ -196,12 +235,29 @@ fun BuyerDashboardScreen(
                             SearchAndFilterRow(
                                 query = searchQuery,
                                 onQueryChange = { searchQuery = it },
-                                onFilterClick = onViewMatches
+                                onFilterClick = {
+                                    draftMaterial = selectedMaterialFilter
+                                    draftState = selectedStateFilter
+                                    showFilterSheet = true
+                                }
                             )
                         }
 
+                        if (!selectedMaterialFilter.isNullOrBlank() || !selectedStateFilter.isNullOrBlank()) {
+                            item {
+                                ActiveFiltersRow(
+                                    selectedMaterial = selectedMaterialFilter,
+                                    selectedState = selectedStateFilter,
+                                    onClear = { listingViewModel.clearFilters() }
+                                )
+                            }
+                        }
+
                         item {
-                            MarketTrendCard(listings = filtered)
+                            MarketTrendCard(
+                                listings = filtered,
+                                analyticsState = analyticsState
+                            )
                         }
 
                         item {
@@ -225,21 +281,34 @@ fun BuyerDashboardScreen(
                             }
                         } else {
                             itemsIndexed(filtered) { index, listing ->
+                                val isMatched = listing.status.equals("matched", ignoreCase = true) ||
+                                    listing.status.equals("closed", ignoreCase = true)
+                                val isRequested = listing.id != null && requestedMatchIds.contains(listing.id)
                                 BuyerListingCard(
                                     listing = listing,
                                     seller = usersById[listing.supplierId],
                                     tag = listingTag(index),
+                                    isMatched = isMatched,
+                                    isRequested = isRequested,
                                     onRequestMatch = {
-                                        listing.id?.let { id ->
-                                            matchViewModel.requestMatch(id)
+                                        if (!isMatched && !isRequested) {
+                                            listing.id?.let { id ->
+                                                pendingMatchRequestId = id
+                                                if (!requestedMatchIds.contains(id)) {
+                                                    requestedMatchIds.add(id)
+                                                }
+                                                matchViewModel.requestMatch(id)
+                                            }
                                         }
                                     },
                                     onSmartMatch = {
-                                        selectedListing = listing
-                                        groqViewModel.getSuggestion(listing)
-                                        smartMatchInsightViewModel.loadLatestInsight(listing.id)
-                                        currentUser?.id?.let { userId ->
-                                            analyticsViewModel.load(userId = userId, listingId = listing.id)
+                                        if (!isMatched) {
+                                            selectedListing = listing
+                                            groqViewModel.getSuggestion(listing)
+                                            smartMatchInsightViewModel.loadLatestInsight(listing.id)
+                                            currentUser?.id?.let { userId ->
+                                                analyticsViewModel.load(userId = userId, listingId = listing.id)
+                                            }
                                         }
                                     }
                                 )
@@ -257,6 +326,125 @@ fun BuyerDashboardScreen(
             )
         }
     }
+
+    if (showFilterSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showFilterSheet = false },
+            sheetState = filterSheetState
+        ) {
+            BuyerFilterSheet(
+                selectedMaterial = draftMaterial,
+                selectedState = draftState,
+                onMaterialSelected = { draftMaterial = it },
+                onStateSelected = { draftState = it },
+                onApply = {
+                    listingViewModel.applyFilters(draftMaterial, draftState)
+                    scope.launch {
+                        filterSheetState.hide()
+                        showFilterSheet = false
+                    }
+                },
+                onClear = {
+                    draftMaterial = null
+                    draftState = null
+                    listingViewModel.clearFilters()
+                    scope.launch {
+                        filterSheetState.hide()
+                        showFilterSheet = false
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ActiveFiltersRow(
+    selectedMaterial: String?,
+    selectedState: String?,
+    onClear: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (!selectedMaterial.isNullOrBlank()) {
+            AssistChip(onClick = {}, label = { Text("Material: $selectedMaterial") })
+        }
+        if (!selectedState.isNullOrBlank()) {
+            AssistChip(onClick = {}, label = { Text("State: $selectedState") })
+        }
+        TextButton(onClick = onClear) {
+            Text("Clear")
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+private fun BuyerFilterSheet(
+    selectedMaterial: String?,
+    selectedState: String?,
+    onMaterialSelected: (String?) -> Unit,
+    onStateSelected: (String?) -> Unit,
+    onApply: () -> Unit,
+    onClear: () -> Unit
+) {
+    val materials = listOf("Plastic", "Metal", "Textile", "Paper", "Chemical", "E-Waste", "Other")
+    val states = listOf("Maharashtra", "Gujarat", "Karnataka", "Tamil Nadu", "Delhi", "Rajasthan", "Uttar Pradesh", "Madhya Pradesh", "Telangana", "West Bengal")
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Filters", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+
+        Text("Material Type", style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            materials.forEach { material ->
+                FilterChip(
+                    selected = selectedMaterial == material,
+                    onClick = { onMaterialSelected(if (selectedMaterial == material) null else material) },
+                    label = { Text(material) }
+                )
+            }
+        }
+
+        Text("State", style = MaterialTheme.typography.titleSmall)
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+            OutlinedTextField(
+                value = selectedState.orEmpty(),
+                onValueChange = {},
+                readOnly = true,
+                placeholder = { Text("Select state") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                modifier = Modifier
+                    .menuAnchor()
+                    .fillMaxWidth()
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                states.forEach { state ->
+                    DropdownMenuItem(
+                        text = { Text(state) },
+                        onClick = {
+                            onStateSelected(state)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onClear, modifier = Modifier.weight(1f)) { Text("Clear") }
+            Button(onClick = onApply, modifier = Modifier.weight(1f)) { Text("Apply") }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+    }
 }
 
 @Composable
@@ -264,52 +452,33 @@ private fun BuyerListingCard(
     listing: Listing,
     seller: User?,
     tag: ListingTag,
+    isMatched: Boolean,
+    isRequested: Boolean,
     onRequestMatch: () -> Unit,
     onSmartMatch: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp),
+            .padding(vertical = 2.dp)
+            .alpha(if (isMatched) 0.5f else 1f),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column {
             Box {
-                if (listing.imageUrl.isNotEmpty()) {
-                    AsyncImage(
-                        model = listing.imageUrl,
-                        contentDescription = "Waste image",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(170.dp)
-                            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(170.dp)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.9f)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Verified,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-                }
+                AsyncImage(
+                    model = listing.imageUrl.takeIf { it.isNotBlank() },
+                    contentDescription = "Listing photo",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(170.dp)
+                        .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
+                    contentScale = ContentScale.Crop,
+                    placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+                    error = ColorPainter(MaterialTheme.colorScheme.surfaceVariant)
+                )
 
                 Surface(
                     color = tag.container,
@@ -392,28 +561,58 @@ private fun BuyerListingCard(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Button(
-                    onClick = onRequestMatch,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(46.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text("Request Match", fontWeight = FontWeight.Bold)
-                }
+                if (isMatched) {
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = Color(0xFFD8F3DC),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Matched",
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            color = Color(0xFF2E7D32),
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                } else if (isRequested) {
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = EcoSectionMint,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Match Requested",
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            color = EcoDeepForest,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = onRequestMatch,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Text("Request Match", fontWeight = FontWeight.Bold)
+                    }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                OutlinedButton(
-                    onClick = onSmartMatch,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(Icons.Filled.VolunteerActivism, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Smart Match")
+                    OutlinedButton(
+                        onClick = onSmartMatch,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Icon(Icons.Filled.VolunteerActivism, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Smart Match")
+                    }
                 }
             }
         }
@@ -483,65 +682,113 @@ private fun SearchAndFilterRow(
 }
 
 @Composable
-private fun MarketTrendCard(listings: List<Listing>) {
+private fun MarketTrendCard(
+    listings: List<Listing>,
+    analyticsState: AnalyticsUiState
+) {
     val totalValue = listings.sumOf { it.quantityKg * it.pricePerKg }
     val totalQuantity = listings.sumOf { it.quantityKg }
+    val avgPrice = listings.map { it.pricePerKg }.takeIf { it.isNotEmpty() }?.average() ?: 0.0
+    val dominantMaterial = listings
+        .groupingBy { it.wasteType }
+        .eachCount()
+        .maxByOrNull { it.value }
+        ?.key
+        ?.takeIf { it.isNotBlank() }
+        ?: "Mixed"
+    val forecast = (analyticsState as? AnalyticsUiState.Success)?.data?.demandForecast
+    val trendLabel = forecast?.trend?.replaceFirstChar { it.uppercase() } ?: "Stable"
+    val trendInsight = forecast?.insight?.takeIf { it.isNotBlank() }
+        ?: "$dominantMaterial demand is tracking stable across active market listings."
+
+    if (totalValue <= 0.0 || totalQuantity <= 0.0) return
 
     Card(
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
+        colors = CardDefaults.cardColors(containerColor = EcoDeepForest),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
+                color = EcoInteractionWhite.copy(alpha = 0.12f)
             ) {
                 Text(
-                    text = "MARKET TRENDS",
+                    text = "AI MARKET PULSE",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary,
+                    color = EcoInteractionWhite,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
+
             Text(
-                text = "Sustainable\nSourcing Hub",
+                text = "$trendLabel Momentum\nfor $dominantMaterial",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onPrimary
+                color = EcoInteractionWhite
             )
             Spacer(modifier = Modifier.height(8.dp))
+
             Text(
-                text = "Live metrics from current active listings in your feed.",
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
+                text = trendInsight,
+                color = EcoInteractionWhite.copy(alpha = 0.8f),
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(modifier = Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column {
                     Text(
                         text = "₹${"%.0f".format(totalValue)}",
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = EcoInteractionWhite,
                         style = MaterialTheme.typography.headlineSmall
                     )
-                    Text("ACTIVE VALUE", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+                    Text("ACTIVE VALUE", color = EcoInteractionWhite.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
                 }
                 Spacer(modifier = Modifier.width(14.dp))
                 Box(
                     modifier = Modifier
                         .height(28.dp)
                         .width(1.dp)
-                        .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f))
+                        .background(EcoInteractionWhite.copy(alpha = 0.2f))
                 )
                 Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text(
                         text = "${"%.0f".format(totalQuantity)} kg",
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = EcoInteractionWhite,
                         style = MaterialTheme.typography.headlineSmall
                     )
-                    Text("OPEN INVENTORY", color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+                    Text("OPEN INVENTORY", color = EcoInteractionWhite.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = EcoSectionMint.copy(alpha = 0.18f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Avg Price",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = EcoInteractionWhite.copy(alpha = 0.75f)
+                    )
+                    Text(
+                        text = "₹${"%.0f".format(avgPrice)}/kg",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = EcoInteractionWhite
+                    )
                 }
             }
         }
@@ -600,13 +847,48 @@ private fun MetricChip(label: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 private fun SmartMatchDialog(
+    selectedListing: Listing,
+    seller: User?,
     groqState: GroqState,
     insightState: SmartMatchInsightState,
     analyticsState: AnalyticsUiState,
     onDismiss: () -> Unit,
     onRequest: () -> Unit
 ) {
-    val smartMatch = (analyticsState as? AnalyticsUiState.Success)?.data?.smartMatch
+    val analytics = (analyticsState as? AnalyticsUiState.Success)?.data
+    val smartMatch = analytics?.smartMatch
+    val demandForecast = analytics?.demandForecast
+    val buyerSuggestions = analytics?.buyerSuggestions
+    val priceSuggestion = analytics?.priceSuggestion
+
+    val requirementTitle = selectedListing.wasteType.ifBlank { "Material Requirement" }
+    val requirementVolume = if (selectedListing.quantityKg > 0) {
+        "${"%.1f".format(selectedListing.quantityKg)} kg"
+    } else {
+        "Not specified"
+    }
+    val requirementLocation = selectedListing.location.ifBlank { "Location not provided" }
+    val supplierName = seller?.name?.takeIf { it.isNotBlank() } ?: "Verified Supplier"
+    val etaText = smartMatch?.estimatedEta ?: etaLabel(insightState)
+    val confidenceText = smartMatch?.confidence?.replaceFirstChar { it.uppercase() } ?: "Medium"
+
+    val marketReferencePrice = priceSuggestion?.let { (it.minPriceInr + it.maxPriceInr) / 2.0 }
+    val efficiencyText = if (selectedListing.pricePerKg > 0.0 && marketReferencePrice != null && marketReferencePrice > 0) {
+        val delta = (((selectedListing.pricePerKg - marketReferencePrice) / marketReferencePrice) * 100.0).roundToInt()
+        if (delta >= 0) "+$delta% vs market" else "$delta% vs market"
+    } else {
+        "Market baseline pending"
+    }
+
+    val logicLineOne = smartMatch?.reason
+        ?: "Match quality is ranked from live availability and fulfillment history."
+    val logicLineTwo = demandForecast?.insight
+        ?: "Demand momentum is derived from current listing activity in your selected flow."
+    val logicLineThree = buyerSuggestions?.summary
+        ?.takeIf { it.isNotBlank() }
+        ?: confidenceNote(insightState)
+        ?: "Confidence updates as more buyer-supplier interactions are confirmed."
+
     val reliabilityText = smartMatch?.reliabilityScore?.let { "$it%" } ?: reliabilityLabel(insightState)
     val reliabilityProgress = (reliabilityText.removeSuffix("%").toFloatOrNull()?.div(100f) ?: 0.84f)
         .coerceIn(0f, 1f)
@@ -618,31 +900,31 @@ private fun SmartMatchDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.40f))
+                .background(EcoDeepForest.copy(alpha = 0.24f))
                 .padding(horizontal = 12.dp, vertical = 24.dp),
             contentAlignment = Alignment.Center
         ) {
             Card(
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.94f)
+                    containerColor = EcoInteractionWhite.copy(alpha = 0.86f)
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 14.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 520.dp)
-                    .fillMaxHeight(0.92f)
+                    .fillMaxHeight(0.88f)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(188.dp)
+                            .height(168.dp)
                             .background(
                                 Brush.linearGradient(
                                     listOf(
-                                        MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.colorScheme.secondary
+                                        EcoDeepForest,
+                                        Color(0xFF1B4332)
                                     )
                                 )
                             )
@@ -676,7 +958,7 @@ private fun SmartMatchDialog(
                                         Text(
                                             text = "AI RECOMMENDATION",
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            color = EcoInteractionWhite,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -685,23 +967,23 @@ private fun SmartMatchDialog(
                                     Icon(
                                         Icons.Filled.Close,
                                         contentDescription = "Close",
-                                        tint = MaterialTheme.colorScheme.onPrimary
+                                        tint = EcoInteractionWhite
                                     )
                                 }
                             }
 
                             Column {
                                 Text(
-                                    text = "Smart Match\nFound",
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    text = "Smart Match\nReady",
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    color = EcoInteractionWhite,
                                     fontWeight = FontWeight.ExtraBold
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = smartMatch?.reason ?: "Sustainable polymer acquisition",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.72f)
+                                    text = logicLineOne,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = EcoInteractionWhite.copy(alpha = 0.76f)
                                 )
                             }
                         }
@@ -722,13 +1004,13 @@ private fun SmartMatchDialog(
                         Text(
                             text = "RELIABILITY SCORE",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.84f),
+                            color = EcoOnSurfaceVariant,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = reliabilityText,
                             style = MaterialTheme.typography.headlineMedium,
-                            color = MaterialTheme.colorScheme.secondary,
+                            color = EcoSageGrowth,
                             fontWeight = FontWeight.ExtraBold
                         )
                     }
@@ -738,83 +1020,101 @@ private fun SmartMatchDialog(
                             .fillMaxWidth()
                             .height(10.dp)
                             .clip(RoundedCornerShape(999.dp)),
-                        color = MaterialTheme.colorScheme.secondary,
-                        trackColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f)
+                        color = EcoSageGrowth,
+                        trackColor = EcoSectionMint
                     )
 
-                    Surface(
-                        shape = RoundedCornerShape(22.dp),
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.18f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            Text(
-                                text = "YOUR REQUIREMENT",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Eco-Processing Hub",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Material", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f))
-                                Text("HDPE Grade A", fontWeight = FontWeight.Bold)
+                        Surface(
+                            shape = RoundedCornerShape(22.dp),
+                            color = EcoSectionMint,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                Text(
+                                    text = "YOUR REQUIREMENT",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = EcoOnSurfaceVariant,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = requirementTitle,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = EcoOnSurface,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Material", color = EcoOnSurfaceVariant)
+                                    Text(requirementTitle, fontWeight = FontWeight.Bold, color = EcoOnSurface)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Volume", color = EcoOnSurfaceVariant)
+                                    Text(requirementVolume, fontWeight = FontWeight.Bold, color = EcoOnSurface)
+                                }
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Volume", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f))
-                                Text("12.5 Tons", fontWeight = FontWeight.Bold)
+                        }
+
+                        Box(modifier = Modifier.weight(1f)) {
+                            Surface(
+                                shape = RoundedCornerShape(22.dp),
+                                color = EcoSectionMint.copy(alpha = 0.85f),
+                                modifier = Modifier
+                                    .padding(top = 10.dp)
+                                    .fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                                    Text(
+                                        text = "PERFECT MATCH",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = EcoSageGrowth,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = supplierName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = EcoOnSurface,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("ETA", color = EcoOnSurfaceVariant)
+                                        Text(etaText, fontWeight = FontWeight.Bold, color = EcoOnSurface)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Market Fit", color = EcoOnSurfaceVariant)
+                                        Text(efficiencyText, fontWeight = FontWeight.Bold, color = EcoOnSurface)
+                                    }
+                                }
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(999.dp),
+                                color = EcoInteractionWhite,
+                                shadowElevation = 6.dp,
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .offset(x = (-8).dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Handshake,
+                                    contentDescription = null,
+                                    tint = EcoSageGrowth,
+                                    modifier = Modifier.padding(8.dp)
+                                )
                             }
                         }
                     }
 
                     Surface(
                         shape = RoundedCornerShape(22.dp),
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
-                        border = androidx.compose.foundation.BorderStroke(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.32f)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-                            Text(
-                                text = "PERFECT MATCH",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.secondary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "North-West Logistics",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Distance", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f))
-                                Text("4.2 km", fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Price Efficiency", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.74f))
-                                Text("+14%", fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(22.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+                        color = EcoInteractionWhite.copy(alpha = 0.92f)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             when (groqState) {
@@ -832,7 +1132,7 @@ private fun SmartMatchDialog(
                                 is GroqState.Success -> {
                                     Text(
                                         text = groqState.suggestion,
-                                        color = MaterialTheme.colorScheme.onSurface,
+                                        color = EcoOnSurface,
                                         style = MaterialTheme.typography.bodyMedium
                                     )
                                 }
@@ -848,43 +1148,56 @@ private fun SmartMatchDialog(
                                 else -> Unit
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
-                            HorizontalDivider(color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f))
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
 
                             Text(
                                 text = "MATCHING LOGIC",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f),
+                                color = EcoOnSurfaceVariant,
                                 fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                                Icon(Icons.Filled.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.LocalShipping, contentDescription = null, tint = EcoSageGrowth, modifier = Modifier.size(16.dp))
                                 Text(
-                                    text = "Proximity optimization reduces transport overhead and carbon footprint.",
+                                    text = logicLineOne,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+                                    color = EcoOnSurfaceVariant
                                 )
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                                Icon(Icons.Filled.Verified, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.Verified, contentDescription = null, tint = EcoSageGrowth, modifier = Modifier.size(16.dp))
                                 Text(
-                                    text = "Partner quality and certification signals align with your current sourcing requirement.",
+                                    text = logicLineTwo,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+                                    color = EcoOnSurfaceVariant
                                 )
                             }
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
-                                Icon(Icons.Filled.Bolt, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Filled.History, contentDescription = null, tint = EcoSageGrowth, modifier = Modifier.size(16.dp))
                                 Text(
-                                    text = confidenceNote(insightState)
-                                        ?: "Based on recent demand trend, this match has higher fulfillment probability.",
+                                    text = "$logicLineThree ($confidenceText confidence)",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
+                                    color = EcoOnSurfaceVariant
                                 )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = EcoSectionMint.copy(alpha = 0.7f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Location", style = MaterialTheme.typography.labelMedium, color = EcoOnSurfaceVariant)
+                                    Text(requirementLocation, style = MaterialTheme.typography.bodyMedium, color = EcoOnSurface, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                         }
                     }
@@ -893,25 +1206,15 @@ private fun SmartMatchDialog(
                         onClick = onRequest,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp),
+                            .height(54.dp)
+                            .background(
+                                brush = Brush.linearGradient(listOf(EcoDeepForest, Color(0xFF1B4332))),
+                                shape = RoundedCornerShape(28.dp)
+                            ),
                         shape = RoundedCornerShape(28.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent)
                     ) {
-                        Text("Request Match", fontWeight = FontWeight.Bold)
-                    }
-
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        shape = RoundedCornerShape(26.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text("View Details", fontWeight = FontWeight.SemiBold)
+                        Text("Request Match", fontWeight = FontWeight.Bold, color = EcoInteractionWhite)
                     }
                 }
             }

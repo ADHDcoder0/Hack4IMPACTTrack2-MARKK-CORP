@@ -16,6 +16,7 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -61,11 +62,29 @@ class GroqAnalyticsRepository @Inject constructor(
     }
 
     suspend fun fetchAnalytics(userId: String, listingId: String? = null): Result<AnalyticsFetchResult> = runCatching {
-        val user = fetchUser(userId)
-        val userListings = fetchUserListings(userId)
-        val recentMatches = fetchRecentMatches(userListings.mapNotNull { it.id })
+        val user = runCatching { fetchUser(userId) }
+            .getOrElse {
+                User(
+                    id = userId,
+                    name = "User",
+                    role = "buyer"
+                )
+            }
+
+        val userListings = runCatching { fetchUserListings(userId) }
+            .getOrDefault(emptyList())
+
+        val recentMatches = runCatching {
+            fetchRecentMatches(
+                userId = userId,
+                userRole = user.role,
+                listingIds = userListings.mapNotNull { it.id }
+            )
+        }.getOrDefault(emptyList())
+
         val targetListing = if (!listingId.isNullOrBlank()) {
-            userListings.firstOrNull { it.id == listingId } ?: fetchListing(listingId)
+            userListings.firstOrNull { it.id == listingId }
+                ?: runCatching { fetchListing(listingId) }.getOrNull()
         } else {
             userListings.firstOrNull()
         }
@@ -85,11 +104,21 @@ class GroqAnalyticsRepository @Inject constructor(
         val aiResponse = runCatching {
             val rawJson = callGroq(prompt)
             parseAnalyticsOrNull(rawJson)
+        }.recoverCatching {
+            if (it is GroqTimeoutException) null else throw it
         }.getOrNull()
 
         if (aiResponse != null) {
             AnalyticsFetchResult(
-                data = aiResponse,
+                data = normalizeAnalytics(
+                    base = aiResponse,
+                    user = user,
+                    listings = userListings,
+                    matches = recentMatches,
+                    targetListing = targetListing,
+                    completedDeals = completedDeals,
+                    totalRequests = totalRequests
+                ),
                 source = AnalyticsSource.GROQ
             )
         } else {
@@ -100,16 +129,34 @@ class GroqAnalyticsRepository @Inject constructor(
                     val rawJson = callGemini(prompt)
                     parseAnalyticsOrNull(rawJson)
                 }
+            }.recoverCatching {
+                if (it is GeminiTimeoutException) null else throw it
             }.getOrNull()
 
             if (geminiResponse != null) {
                 AnalyticsFetchResult(
-                    data = geminiResponse,
+                    data = normalizeAnalytics(
+                        base = geminiResponse,
+                        user = user,
+                        listings = userListings,
+                        matches = recentMatches,
+                        targetListing = targetListing,
+                        completedDeals = completedDeals,
+                        totalRequests = totalRequests
+                    ),
                     source = AnalyticsSource.GEMINI
                 )
             } else {
             AnalyticsFetchResult(
-                data = buildFallbackAnalytics(
+                data = normalizeAnalytics(
+                    base = buildFallbackAnalytics(
+                        user = user,
+                        listings = userListings,
+                        matches = recentMatches,
+                        targetListing = targetListing,
+                        completedDeals = completedDeals,
+                        totalRequests = totalRequests
+                    ),
                     user = user,
                     listings = userListings,
                     matches = recentMatches,
@@ -145,17 +192,26 @@ class GroqAnalyticsRepository @Inject constructor(
             .decodeSingleOrNull<Listing>()
     }
 
-    private suspend fun fetchRecentMatches(listingIds: List<String>): List<Match> {
-        if (listingIds.isEmpty()) return emptyList()
-
-        val listingIdSet = listingIds.toSet()
-        return supabase.postgrest["matches"]
+    private suspend fun fetchRecentMatches(
+        userId: String,
+        userRole: String,
+        listingIds: List<String>
+    ): List<Match> {
+        val allRecentMatches = supabase.postgrest["matches"]
             .select {
                 order("created_at", Order.DESCENDING)
-                limit(100)
+                limit(120)
             }
             .decodeList<Match>()
-            .filter { it.listingId in listingIdSet }
+
+        return if (userRole.equals("buyer", ignoreCase = true)) {
+            allRecentMatches.filter { it.buyerId == userId }
+        } else {
+            if (listingIds.isEmpty()) emptyList() else {
+                val listingIdSet = listingIds.toSet()
+                allRecentMatches.filter { it.listingId in listingIdSet }
+            }
+        }
     }
 
     private fun buildPrompt(
@@ -297,12 +353,16 @@ Rules:
             responseFormat = ResponseFormat(type = "json_object")
         )
 
-        val response = httpClient.post("https://api.groq.com/openai/v1/chat/completions") {
-            contentType(ContentType.Application.Json)
-            headers {
-                append(HttpHeaders.Authorization, "Bearer $groqApiKey")
+        val response = try {
+            httpClient.post("https://api.groq.com/openai/v1/chat/completions") {
+                contentType(ContentType.Application.Json)
+                headers {
+                    append(HttpHeaders.Authorization, "Bearer $groqApiKey")
+                }
+                setBody(request)
             }
-            setBody(request)
+        } catch (_: HttpRequestTimeoutException) {
+            throw GroqTimeoutException()
         }
 
         val body = response.body<JsonObject>()
@@ -342,11 +402,15 @@ Rules:
         val url = "https://generativelanguage.googleapis.com/v1beta/models/" +
             "gemini-1.5-flash:generateContent?key=$geminiApiKey"
 
-        val response = httpClient.post(url) {
-            contentType(ContentType.Application.Json)
-            setBody(
-                """{"contents":[{"parts":[{"text":"$escapedPrompt"}]}],"generationConfig":{"temperature":0.1,"maxOutputTokens":500}}"""
-            )
+        val response = try {
+            httpClient.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    """{"contents":[{"parts":[{"text":"$escapedPrompt"}]}],"generationConfig":{"temperature":0.1,"maxOutputTokens":500}}"""
+                )
+            }
+        } catch (_: HttpRequestTimeoutException) {
+            throw GeminiTimeoutException()
         }
 
         val body = response.body<JsonObject>()
@@ -436,13 +500,13 @@ Rules:
             .sortedByDescending { it.matchScore }
             .take(3)
 
-        val trustScore = (45 + completedDeals * 10 + listings.size * 2).coerceIn(30, 98)
-        val trustTier = when {
-            trustScore >= 90 -> "Verified"
-            trustScore >= 75 -> "Gold"
-            trustScore >= 60 -> "Silver"
-            else -> "Bronze"
-        }
+        val computedTrust = computeTrustScore(
+            user = user,
+            listings = listings,
+            matches = matches,
+            completedDeals = completedDeals,
+            totalRequests = totalRequests
+        )
 
         val wasteContext = targetListing?.wasteType?.ifBlank { "selected category" } ?: "selected category"
 
@@ -479,15 +543,374 @@ Rules:
                 listingQualityScore = (55 + listings.size + completedDeals * 6).coerceIn(40, 95)
             ),
             trustScore = TrustScore(
-                score = trustScore,
-                tier = trustTier,
-                factors = listOf(
-                    "Confirmed deals: $completedDeals",
-                    "Active listings: ${listings.size}",
-                    "Total requests: $totalRequests"
-                ),
-                nextAction = "Complete and fulfill a few more matched requests to improve trust tier."
+                score = computedTrust.score,
+                tier = computedTrust.tier,
+                factors = computedTrust.factors,
+                nextAction = computedTrust.nextAction
             )
+        )
+    }
+
+    private fun normalizeAnalytics(
+        base: AnalyticsResponse,
+        user: User,
+        listings: List<Listing>,
+        matches: List<Match>,
+        targetListing: Listing?,
+        completedDeals: Int,
+        totalRequests: Int
+    ): AnalyticsResponse {
+        val computedDemandForecast = computeDemandForecast(listings, targetListing)
+        val computedSmartMatch = computeSmartMatch(listings, matches, targetListing)
+        val computedSellerAnalytics = computeSellerAnalytics(
+            user = user,
+            listings = listings,
+            matches = matches,
+            targetListing = targetListing,
+            completedDeals = completedDeals,
+            totalRequests = totalRequests
+        )
+        val computedTrust = computeTrustScore(
+            user = user,
+            listings = listings,
+            matches = matches,
+            completedDeals = completedDeals,
+            totalRequests = totalRequests
+        )
+
+        val defaultFingerprint =
+            base.sellerAnalytics.listingQualityScore == 60 &&
+                base.smartMatch.reliabilityScore == 60 &&
+                base.trustScore.score == 60
+
+        val summaryLooksGeneric =
+            base.sellerAnalytics.performanceSummary.isBlank() ||
+                base.sellerAnalytics.performanceSummary.contains("unavailable", ignoreCase = true) ||
+                base.sellerAnalytics.performanceSummary.contains("empty", ignoreCase = true) ||
+                base.sellerAnalytics.performanceSummary.contains("insufficient", ignoreCase = true)
+
+        val scoreLooksGeneric = base.sellerAnalytics.listingQualityScore == 60 && listings.isNotEmpty()
+
+        val mergedSellerAnalytics = if (defaultFingerprint || summaryLooksGeneric || scoreLooksGeneric) {
+            computedSellerAnalytics
+        } else {
+            base.sellerAnalytics.copy(
+                performanceSummary = base.sellerAnalytics.performanceSummary.trim(),
+                suggestedCategory = base.sellerAnalytics.suggestedCategory
+                    .takeIf { it.isNotBlank() }
+                    ?: computedSellerAnalytics.suggestedCategory,
+                improvementTip = base.sellerAnalytics.improvementTip
+                    .takeIf { it.isNotBlank() }
+                    ?: computedSellerAnalytics.improvementTip,
+                listingQualityScore = base.sellerAnalytics.listingQualityScore.coerceIn(35, 99),
+                activeListings = computedSellerAnalytics.activeListings,
+                conversionRatePct = computedSellerAnalytics.conversionRatePct
+            )
+        }
+
+        val mergedDemandForecast = base.demandForecast.let { incoming ->
+            val trend = when (incoming.trend.lowercase()) {
+                "rising", "stable", "falling" -> incoming.trend.lowercase()
+                else -> computedDemandForecast.trend
+            }
+
+            val incomingInsight = sanitizeNarrative(
+                text = incoming.insight,
+                fallback = computedDemandForecast.insight
+            )
+
+            val trendLooksGeneric = incomingInsight.contains("inferred from", ignoreCase = true) ||
+                incomingInsight.contains("recent activity", ignoreCase = true)
+
+            if (trendLooksGeneric) {
+                computedDemandForecast
+            } else {
+                incoming.copy(
+                    trend = trend,
+                    confidencePct = incoming.confidencePct.coerceIn(35, 98),
+                    insight = incomingInsight
+                )
+            }
+        }
+
+        val mergedSmartMatch = base.smartMatch.let { incoming ->
+            val confidence = when (incoming.confidence.lowercase()) {
+                "high", "medium", "low" -> incoming.confidence.lowercase()
+                else -> computedSmartMatch.confidence
+            }
+            incoming.copy(
+                reliabilityScore = incoming.reliabilityScore.coerceIn(35, 98),
+                estimatedEta = sanitizeNarrative(incoming.estimatedEta, computedSmartMatch.estimatedEta),
+                reason = sanitizeNarrative(incoming.reason, computedSmartMatch.reason),
+                confidence = confidence
+            )
+        }
+
+        val mergedPriceSuggestion = base.priceSuggestion.copy(
+            minPriceInr = base.priceSuggestion.minPriceInr.coerceAtLeast(1),
+            maxPriceInr = base.priceSuggestion.maxPriceInr.coerceAtLeast(base.priceSuggestion.minPriceInr + 1),
+            unit = sanitizeUnit(base.priceSuggestion.unit),
+            basis = sanitizeNarrative(
+                text = base.priceSuggestion.basis,
+                fallback = "Estimated from listing prices and active supply trends."
+            )
+        )
+
+        val trustLooksGeneric =
+            base.trustScore.score == 60 ||
+                base.trustScore.factors.isEmpty() ||
+                base.trustScore.nextAction.contains("maintain consistent", ignoreCase = true)
+
+        val mergedTrust = if (trustLooksGeneric) {
+            computedTrust
+        } else {
+            base.trustScore.copy(
+                score = base.trustScore.score.coerceIn(30, 98),
+                tier = sanitizeTier(base.trustScore.tier),
+                factors = base.trustScore.factors
+                    .map { sanitizeNarrative(it, "Consistency") }
+                    .filter { it.isNotBlank() }
+                    .take(3)
+                    .ifEmpty { computedTrust.factors },
+                nextAction = sanitizeNarrative(
+                    text = base.trustScore.nextAction,
+                    fallback = computedTrust.nextAction
+                )
+            )
+        }
+
+        return base.copy(
+            smartMatch = mergedSmartMatch,
+            priceSuggestion = mergedPriceSuggestion,
+            demandForecast = mergedDemandForecast,
+            sellerAnalytics = mergedSellerAnalytics,
+            trustScore = mergedTrust
+        )
+    }
+
+    private fun computeDemandForecast(
+        listings: List<Listing>,
+        targetListing: Listing?
+    ): DemandForecast {
+        if (listings.isEmpty()) {
+            return DemandForecast(
+                trend = "stable",
+                confidencePct = 40,
+                insight = "Insufficient live listings; demand baseline is stable for now."
+            )
+        }
+
+        val avgPrice = listings.map { it.pricePerKg }.average()
+        val avgQty = listings.map { it.quantityKg }.average()
+        val denseSupply = listings.count { it.quantityKg >= avgQty }.toDouble() / listings.size
+
+        val trend = when {
+            denseSupply >= 0.60 && avgPrice > 0 -> "rising"
+            denseSupply >= 0.35 -> "stable"
+            else -> "falling"
+        }
+
+        val confidence = (45 + (listings.size * 3)).coerceIn(45, 90)
+        val category = targetListing?.wasteType?.takeIf { it.isNotBlank() }
+            ?: listings.groupingBy { it.wasteType }.eachCount().maxByOrNull { it.value }?.key
+            ?: "this material"
+
+        val insight = when (trend) {
+            "rising" -> "$category demand is rising with stronger active supply depth this week."
+            "falling" -> "$category demand looks soft; prioritize competitive pricing and quick response."
+            else -> "$category demand is stable with balanced inventory across active listings."
+        }
+
+        return DemandForecast(
+            trend = trend,
+            confidencePct = confidence,
+            insight = insight
+        )
+    }
+
+    private fun computeSmartMatch(
+        listings: List<Listing>,
+        matches: List<Match>,
+        targetListing: Listing?
+    ): SmartMatchResult {
+        val targetRequests = targetListing?.id?.let { id -> matches.count { it.listingId == id } } ?: 0
+        val reliability = (50 + targetRequests * 8 + listings.size * 2).coerceIn(35, 96)
+        val confidence = when {
+            reliability >= 80 -> "high"
+            reliability >= 60 -> "medium"
+            else -> "low"
+        }
+
+        return SmartMatchResult(
+            reliabilityScore = reliability,
+            estimatedEta = if (reliability >= 75) "2-4 days" else "4-7 days",
+            reason = "Match quality is ranked from live availability, location fit, and response history.",
+            confidence = confidence
+        )
+    }
+
+    private fun sanitizeUnit(unit: String): String {
+        val normalized = unit.trim().lowercase()
+        return when {
+            normalized.contains("kg") -> "per kg"
+            normalized.contains("ton") -> "per tonne"
+            normalized.contains("unit") -> "per unit"
+            else -> "per kg"
+        }
+    }
+
+    private fun sanitizeTier(tier: String): String {
+        return when (tier.trim().lowercase()) {
+            "verified" -> "Verified"
+            "gold" -> "Gold"
+            "silver" -> "Silver"
+            else -> "Bronze"
+        }
+    }
+
+    private fun sanitizeNarrative(text: String, fallback: String): String {
+        // Keep sanitization regex-free to avoid runtime pattern parsing failures.
+        val cleaned = text
+            .replace("```", " ")
+            .replace("<", " ")
+            .replace(">", " ")
+            .replace("{", " ")
+            .replace("}", " ")
+            .replace("\n", " ")
+            .replace("\r", " ")
+            .replace("\t", " ")
+            .split(' ')
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .trim()
+
+        val injectionSignals = listOf(
+            "ignore previous",
+            "system prompt",
+            "developer message",
+            "tool call",
+            "do not follow",
+            "jailbreak"
+        )
+
+        val looksUnsafe = cleaned.isBlank() ||
+            injectionSignals.any { cleaned.contains(it, ignoreCase = true) }
+
+        return if (looksUnsafe) fallback else cleaned
+    }
+
+    private fun computeSellerAnalytics(
+        user: User,
+        listings: List<Listing>,
+        matches: List<Match>,
+        targetListing: Listing?,
+        completedDeals: Int,
+        totalRequests: Int
+    ): SellerAnalytics {
+        val activeListings = listings.count { it.status.equals("active", ignoreCase = true) }
+        val listingsWithImages = listings.count { it.imageUrl.isNotBlank() }
+        val confirmRatePct = if (totalRequests > 0) {
+            ((completedDeals.toDouble() / totalRequests.toDouble()) * 100.0).roundToInt()
+        } else {
+            0
+        }
+
+        val qualityScore = (
+            42 +
+                activeListings * 5 +
+                completedDeals * 8 +
+                listingsWithImages * 3 -
+                (totalRequests - completedDeals).coerceAtLeast(0) * 2
+            ).coerceIn(35, 97)
+
+        val performanceSummary = if (totalRequests > 0) {
+            "${user.name.ifBlank { "Seller" }} has $completedDeals confirmed deals from $totalRequests requests (${confirmRatePct}% conversion)."
+        } else {
+            "${user.name.ifBlank { "Seller" }} has ${listings.size} listings and is building first-match traction."
+        }
+
+        val suggestedCategory = targetListing?.wasteType?.takeIf { it.isNotBlank() }
+            ?: listings
+                .groupingBy { it.wasteType }
+                .eachCount()
+                .maxByOrNull { it.value }
+                ?.key
+            ?: "Mixed Waste"
+
+        val improvementTip = when {
+            listings.isEmpty() -> "Create at least one listing with clear specs to start receiving requests."
+            listingsWithImages < listings.size -> "Add photos to every listing to increase buyer response quality."
+            totalRequests > 0 && completedDeals == 0 -> "Follow up on pending requests quickly to improve confirmation rates."
+            confirmRatePct < 40 -> "Tighten pricing and location clarity to improve buyer conversion."
+            else -> "Keep listing details consistent and refresh inactive listings weekly."
+        }
+
+        return SellerAnalytics(
+            performanceSummary = performanceSummary,
+            suggestedCategory = suggestedCategory,
+            improvementTip = improvementTip,
+            listingQualityScore = qualityScore,
+            activeListings = activeListings,
+            conversionRatePct = confirmRatePct
+        )
+    }
+
+    private fun computeTrustScore(
+        user: User,
+        listings: List<Listing>,
+        matches: List<Match>,
+        completedDeals: Int,
+        totalRequests: Int
+    ): TrustScore {
+        val isBuyer = user.role.equals("buyer", ignoreCase = true)
+        val rejectedRequests = matches.count { it.status.equals("rejected", ignoreCase = true) }
+        val pendingRequests = matches.count { it.status.equals("pending", ignoreCase = true) }
+
+        val score = if (isBuyer) {
+            (40 + completedDeals * 10 + totalRequests * 3 - rejectedRequests * 4).coerceIn(30, 98)
+        } else {
+            val activeListings = listings.count { it.status.equals("active", ignoreCase = true) }
+            val listingsWithImages = listings.count { it.imageUrl.isNotBlank() }
+            (45 + completedDeals * 9 + activeListings * 3 + listingsWithImages * 2 - rejectedRequests * 3)
+                .coerceIn(30, 98)
+        }
+
+        val tier = when {
+            score >= 90 -> "Verified"
+            score >= 75 -> "Gold"
+            score >= 60 -> "Silver"
+            else -> "Bronze"
+        }
+
+        val factors = if (isBuyer) {
+            listOf(
+                "Confirmed purchases: $completedDeals",
+                "Requests placed: $totalRequests",
+                "Pending requests: $pendingRequests"
+            )
+        } else {
+            listOf(
+                "Confirmed deals: $completedDeals",
+                "Active listings: ${listings.size}",
+                "Total requests: $totalRequests"
+            )
+        }
+
+        val nextAction = if (isBuyer) {
+            if (pendingRequests > 0) {
+                "Review pending matches quickly to improve buyer reliability."
+            } else {
+                "Keep confirming strong supplier matches to raise trust tier."
+            }
+        } else {
+            "Complete and fulfill a few more matched requests to improve trust tier."
+        }
+
+        return TrustScore(
+            score = score,
+            tier = tier,
+            factors = factors,
+            nextAction = nextAction
         )
     }
 
@@ -502,3 +925,7 @@ Rules:
             .trim()
     }
 }
+
+private class GroqTimeoutException : Exception("Groq request timed out")
+
+private class GeminiTimeoutException : Exception("Gemini request timed out")

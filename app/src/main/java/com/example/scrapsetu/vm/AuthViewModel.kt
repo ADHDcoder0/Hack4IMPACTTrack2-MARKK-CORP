@@ -22,11 +22,35 @@ class AuthViewModel @Inject constructor(
     private val _currentUser = MutableStateFlow<User?>(null)
     val currentUser: StateFlow<User?> = _currentUser
 
-    fun signUp(email: String, password: String, name: String, role: String, location: String) {
+    fun signUp(
+        email: String,
+        password: String,
+        name: String,
+        role: String,
+        location: String,
+        businessName: String,
+        phone: String,
+        state: String,
+        businessType: String,
+        wasteCategories: List<String>,
+        monthlyVolume: Int
+    ) {
         viewModelScope.launch {
             _authState.value = AuthState.Loading
             try {
-                authRepo.signUp(email, password, name, role, location)
+                authRepo.signUp(
+                    email = email,
+                    password = password,
+                    name = name,
+                    role = role,
+                    location = location,
+                    businessName = businessName,
+                    phone = phone,
+                    state = state,
+                    businessType = businessType,
+                    wasteCategories = wasteCategories,
+                    monthlyVolume = monthlyVolume
+                )
                 _authState.value = AuthState.Success
             } catch (e: Exception) {
                 _authState.value = AuthState.Error(e.message ?: "Sign up failed")
@@ -75,19 +99,31 @@ class AuthViewModel @Inject constructor(
     }
     fun loadUserRole() {
         viewModelScope.launch {
-            val user = authRepo.getCurrentUser()
-            android.util.Log.d("AuthViewModel", "User role: ${user?.role}")
-            _userRole.value = user?.role
+            runCatching { authRepo.getCurrentUser() }
+                .onSuccess { user ->
+                    android.util.Log.d("AuthViewModel", "User role: ${user?.role}")
+                    _userRole.value = user?.role
+                }
+                .onFailure { e ->
+                    android.util.Log.e("AuthViewModel", "loadUserRole failed: ${e.message}")
+                    _userRole.value = null
+                }
         }
     }
 
     fun loadCurrentUserDetails() {
         viewModelScope.launch {
-            val user = authRepo.getCurrentUser()
-            _currentUser.value = user
-            if (!user?.role.isNullOrBlank()) {
-                _userRole.value = user?.role
-            }
+            runCatching { authRepo.getCurrentUser() }
+                .onSuccess { user ->
+                    _currentUser.value = user
+                    if (!user?.role.isNullOrBlank()) {
+                        _userRole.value = user.role
+                    }
+                }
+                .onFailure { e ->
+                    android.util.Log.e("AuthViewModel", "loadCurrentUserDetails failed: ${e.message}")
+                    _currentUser.value = null
+                }
         }
     }
 }

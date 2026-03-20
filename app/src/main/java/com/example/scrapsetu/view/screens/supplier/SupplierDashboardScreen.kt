@@ -53,6 +53,7 @@ import com.example.scrapsetu.view.components.SellerAnalyticsCard
 import com.example.scrapsetu.vm.AnalyticsUiState
 import com.example.scrapsetu.vm.AuthViewModel
 import com.example.scrapsetu.vm.GroqAnalyticsViewModel
+import com.example.scrapsetu.vm.GroqViewModel
 import com.example.scrapsetu.vm.ImageDetectionViewModel
 import com.example.scrapsetu.vm.ListingState
 import com.example.scrapsetu.vm.ListingViewModel
@@ -68,6 +69,7 @@ fun SupplierDashboardScreen(
     viewModel: ListingViewModel = hiltViewModel(),
     masterDataViewModel: MasterDataViewModel = hiltViewModel(),
     analyticsViewModel: GroqAnalyticsViewModel = hiltViewModel(),
+    groqViewModel: GroqViewModel = hiltViewModel(),
     detectionViewModel: ImageDetectionViewModel = hiltViewModel(),
     authViewModel: AuthViewModel = hiltViewModel()
 ) {
@@ -255,6 +257,7 @@ fun SupplierDashboardScreen(
             states = states,
             districts = districts,
             analyticsState = analyticsState,
+            groqViewModel = groqViewModel,
             detectionViewModel = detectionViewModel,
             initialListing = editingListing,
             onStateSelected = { stateCode -> masterDataViewModel.loadDistricts(stateCode) },
@@ -547,6 +550,7 @@ fun AddListingDialog(
     states: List<IndiaState>,
     districts: List<IndiaDistrict>,
     analyticsState: AnalyticsUiState,
+    groqViewModel: GroqViewModel,
     detectionViewModel: ImageDetectionViewModel,
     initialListing: Listing? = null,
     onStateSelected: (String) -> Unit,
@@ -571,6 +575,9 @@ fun AddListingDialog(
     var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val existingImageUrl = initialListing?.imageUrl.orEmpty()
     val isEditMode = initialListing != null
+    val priceEstimate by groqViewModel.priceEstimate.collectAsState()
+    val priceEstimateLoading by groqViewModel.priceEstimateLoading.collectAsState()
+    val priceEstimateError by groqViewModel.priceEstimateError.collectAsState()
 
     val context = LocalContext.current
 
@@ -593,6 +600,19 @@ fun AddListingDialog(
     LaunchedEffect(initialListing?.stateCode, states) {
         if (selectedState == null && initialListing?.stateCode != null) {
             selectedState = states.firstOrNull { it.stateCode == initialListing.stateCode }
+        }
+    }
+
+    LaunchedEffect(selectedCategory?.label, quantity, selectedState?.stateName) {
+        val qty = quantity.toDoubleOrNull()
+        if (qty != null && qty > 0.0 && !selectedCategory?.label.isNullOrBlank() && !selectedState?.stateName.isNullOrBlank()) {
+            groqViewModel.requestPriceEstimate(
+                materialType = selectedCategory?.label.orEmpty(),
+                quantity = qty,
+                state = selectedState?.stateName.orEmpty()
+            )
+        } else {
+            groqViewModel.requestPriceEstimate("", 0.0, "")
         }
     }
 
@@ -785,6 +805,67 @@ fun AddListingDialog(
                         Spacer(modifier = Modifier.height(10.dp))
                         AnalyticsShell(state = analyticsState) { data ->
                             PriceSuggestionChip(suggestion = data.priceSuggestion)
+                        }
+
+                        if (priceEstimateLoading) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Text("Fetching AI price estimate...")
+                                }
+                            }
+                        } else if (priceEstimate != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "AI Live Price Estimate",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                    )
+                                    Text(
+                                        text = "INR ${priceEstimate?.min}-${priceEstimate?.max} ${priceEstimate?.unit}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        text = "Confidence: ${priceEstimate?.confidence}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.85f)
+                                    )
+                                }
+                            }
+                        } else if (!priceEstimateError.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(18.dp),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = priceEstimateError.orEmpty(),
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
 

@@ -8,6 +8,7 @@ import io.github.jan.supabase.postgrest.query.Order
 class ListingRepository {
 
     private val client = SupabaseClientProvider.client
+    private val matchRepository = MatchRepository()
 
     suspend fun createListing(listing: Listing) {
         client.postgrest["listings"].insert(listing)
@@ -47,6 +48,8 @@ class ListingRepository {
         description: String,
         imageUrl: String
     ) {
+        matchRepository.cancelPendingMatches(listingId)
+
         client.postgrest["listings"]
             .update(
                 {

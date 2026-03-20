@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.TrendingUp
@@ -34,6 +35,9 @@ import com.example.scrapsetu.vm.MatchViewModel
 import com.example.scrapsetu.vm.ListingViewModel
 import com.example.scrapsetu.vm.UserViewModel
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +66,19 @@ fun MatchStatusScreen(
         matches.mapNotNull { match ->
             listingById[match.listingId]?.supplierId?.takeIf { it.isNotBlank() }
         }.distinct().sorted()
+    }
+    val totalSavings = remember(matches, listingById) {
+        matches
+            .filter { it.status.equals("confirmed", ignoreCase = true) }
+            .sumOf { match ->
+                val listing = listingById[match.listingId]
+                (listing?.pricePerKg ?: 0.0) * (listing?.quantityKg ?: 0.0)
+            }
+    }
+    val tonsDiverted = remember(matches, listingById) {
+        matches
+            .filter { it.status.equals("confirmed", ignoreCase = true) }
+            .sumOf { match -> listingById[match.listingId]?.quantityKg ?: 0.0 } / 1000.0
     }
 
     val onActionClick: (String) -> Unit = { message ->
@@ -124,6 +141,8 @@ fun MatchStatusScreen(
                 ) {
                     item {
                         OverviewCards(
+                            totalSavings = totalSavings,
+                            tonsDiverted = tonsDiverted,
                             onViewImpactReport = { onActionClick("Impact report export is not ready yet") }
                         )
                     }
@@ -152,21 +171,35 @@ fun MatchStatusScreen(
                     if (matches.isEmpty()) {
                         item {
                             Card(
-                                shape = RoundedCornerShape(18.dp),
+                                shape = RoundedCornerShape(20.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = "No matches yet.",
-                                    modifier = Modifier.padding(18.dp),
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
+                                Column(
+                                    modifier = Modifier.padding(20.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(Icons.Filled.Handshake, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+                                    Text("No match requests yet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        "Browse listings and request a match to get started",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+                                    )
+                                    Button(onClick = onNavigateToDashboard, shape = RoundedCornerShape(18.dp)) {
+                                        Icon(Icons.Filled.Search, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Browse Listings")
+                                    }
+                                }
                             }
                         }
                     } else {
                         itemsIndexed(matches) { index, match ->
                             MatchCard(
                                 match = match,
+                                listing = listingById[match.listingId],
                                 index = index,
                                 onArchive = { onActionClick("Archived") },
                                 onRevertRequest = {
@@ -203,7 +236,11 @@ fun MatchStatusScreen(
 }
 
 @Composable
-private fun OverviewCards(onViewImpactReport: () -> Unit) {
+private fun OverviewCards(
+    totalSavings: Double,
+    tonsDiverted: Double,
+    onViewImpactReport: () -> Unit
+) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Card(
             shape = RoundedCornerShape(18.dp),
@@ -219,7 +256,7 @@ private fun OverviewCards(onViewImpactReport: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "₹14,500",
+                    text = if (totalSavings > 0.0) "₹${"%.0f".format(totalSavings)}" else "₹0 saved",
                     style = MaterialTheme.typography.headlineMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.ExtraBold
@@ -228,7 +265,7 @@ private fun OverviewCards(onViewImpactReport: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.TrendingUp, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("12% from last month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                    Text("Confirmed match savings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
                 }
             }
         }
@@ -247,7 +284,7 @@ private fun OverviewCards(onViewImpactReport: () -> Unit) {
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "You've diverted 1.2 tons of industrial plastic from landfills this quarter.",
+                    text = "You've diverted ${"%.2f".format(tonsDiverted)} tons via confirmed matches.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.76f)
                 )
@@ -270,6 +307,7 @@ private fun OverviewCards(onViewImpactReport: () -> Unit) {
 @Composable
 private fun MatchCard(
     match: Match,
+    listing: Listing?,
     index: Int,
     onArchive: () -> Unit,
     onRevertRequest: () -> Unit,
@@ -324,11 +362,7 @@ private fun MatchCard(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = when (index % 3) {
-                            0 -> "Premium Grade PET Pellets"
-                            1 -> "Industrial Copper Scraps"
-                            else -> "Mixed Cardboard Waste"
-                        },
+                        text = listing?.wasteType?.ifBlank { "Listing #${index + 1}" } ?: "Listing #${index + 1}",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Bold
@@ -344,7 +378,8 @@ private fun MatchCard(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Filled.Verified, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f), modifier = Modifier.size(14.dp))
                                 Spacer(modifier = Modifier.width(3.dp))
-                                Text(if (index % 2 == 0) "500kg" else "1.2 Tons", style = MaterialTheme.typography.bodySmall)
+                                val qty = listing?.quantityKg ?: 0.0
+                                Text(if (qty >= 1000.0) "${"%.2f".format(qty / 1000.0)} Tons" else "${"%.0f".format(qty)}kg", style = MaterialTheme.typography.bodySmall)
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
@@ -354,7 +389,10 @@ private fun MatchCard(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
-                                Text(if (match.status == "confirmed") "Jun 24, 2024" else "Okhla Ind. Area", style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    if (match.status == "confirmed") formatMatchDate(match.createdAt) else listing?.location?.ifBlank { "N/A" } ?: "N/A",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
                         }
                     }
@@ -550,4 +588,15 @@ private fun MatchNavItem(
             Text(label, style = MaterialTheme.typography.labelSmall)
         }
     }
+}
+
+private fun formatMatchDate(raw: String): String {
+    return runCatching {
+        val trimmed = raw.trim()
+        val isoDatePart = trimmed.take(10)
+        val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        parser.isLenient = false
+        val date: Date = parser.parse(isoDatePart) ?: return@runCatching isoDatePart
+        SimpleDateFormat("dd MMM yyyy", Locale.US).format(date)
+    }.getOrElse { raw.take(10) }
 }

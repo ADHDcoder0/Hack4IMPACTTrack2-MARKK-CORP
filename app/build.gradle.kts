@@ -14,9 +14,22 @@ val localProperties = Properties().apply {
         load(localPropertiesFile.inputStream())
     }
 }
-val geminiApiValue = localProperties["GEMINI_API"]?.toString()
-    ?: localProperties["GEMINI_KEY"]?.toString()
-    ?: "\"\""
+
+fun Properties.buildConfigString(vararg keys: String): String {
+    val raw = keys
+        .asSequence()
+        .mapNotNull { getProperty(it)?.trim() }
+        .firstOrNull { it.isNotEmpty() }
+        .orEmpty()
+
+    // Strip accidental wrapping characters copied from docs/editors.
+    val normalized = raw.trim().trim('"', '\'', '`')
+    val escaped = normalized
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+    return "\"$escaped\""
+}
+
 android {
     namespace = "com.example.scrapsetu"
     compileSdk = 36
@@ -28,10 +41,10 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "SUPABASE_URL", localProperties["SUPABASE_URL"].toString())
-        buildConfigField("String", "SUPABASE_KEY", localProperties["SUPABASE_KEY"].toString())
-        buildConfigField("String", "GROQ_API_KEY", localProperties["GROQ_API_KEY"].toString())
-        buildConfigField("String", "GEMINI_API_KEY", geminiApiValue)
+        buildConfigField("String", "SUPABASE_URL", localProperties.buildConfigString("SUPABASE_URL"))
+        buildConfigField("String", "SUPABASE_KEY", localProperties.buildConfigString("SUPABASE_KEY"))
+        buildConfigField("String", "GROQ_API_KEY", localProperties.buildConfigString("GROQ_API_KEY"))
+        buildConfigField("String", "GEMINI_API_KEY", localProperties.buildConfigString("GEMINI_API", "GEMINI_KEY"))
 
     }
 

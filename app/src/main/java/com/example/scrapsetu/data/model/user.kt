@@ -9,6 +9,17 @@ data class User(
     val email: String = "",
     val role: String = "",       // "supplier" or "buyer"
     val name: String = "",
+    @SerialName("business_name")
+    val businessName: String = "",
+    val phone: String = "",
+    @SerialName("state")
+    val state: String = "",
+    @SerialName("business_type")
+    val businessType: String = "",
+    @SerialName("waste_categories")
+    val wasteCategories: List<String> = emptyList(),
+    @SerialName("monthly_volume")
+    val monthlyVolume: Int = 0,
     @SerialName("state_code")
     val stateCode: String? = null,
     @SerialName("district_id")

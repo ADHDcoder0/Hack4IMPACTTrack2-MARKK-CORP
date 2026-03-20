@@ -22,6 +22,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.SupabaseClient
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
@@ -38,7 +39,9 @@ object AppModule {
             context,
             ScrapSetuDatabase::class.java,
             "scrapsetu.db"
-        ).build()
+        )
+            .fallbackToDestructiveMigration()
+            .build()
 
     @Provides @Singleton
     fun provideSessionDao(db: ScrapSetuDatabase): SessionDao = db.sessionDao()
@@ -58,6 +61,11 @@ object AppModule {
     fun provideHttpClient(): HttpClient = HttpClient(Android) {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 15_000
+            connectTimeoutMillis = 10_000
+            socketTimeoutMillis = 15_000
         }
     }
 

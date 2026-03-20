@@ -59,4 +59,14 @@ class MatchRepository {
                 }
             }
     }
+
+    suspend fun cancelPendingMatches(listingId: String) {
+        client.postgrest["matches"]
+            .update({ set("status", "cancelled") }) {
+                filter {
+                    eq("listing_id", listingId)
+                    eq("status", "pending")
+                }
+            }
+    }
 }

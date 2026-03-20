@@ -54,7 +54,9 @@ data class SellerAnalytics(
     @SerialName("performance_summary") val performanceSummary: String = "Performance summary unavailable.",
     @SerialName("suggested_category") val suggestedCategory: String = "Mixed Waste",
     @SerialName("improvement_tip") val improvementTip: String = "Add better photos and detailed descriptions.",
-    @SerialName("listing_quality_score") val listingQualityScore: Int = 60
+    @SerialName("listing_quality_score") val listingQualityScore: Int = 60,
+    @SerialName("active_listings") val activeListings: Int = 0,
+    @SerialName("conversion_rate_pct") val conversionRatePct: Int = 0
 )
 
 @Serializable

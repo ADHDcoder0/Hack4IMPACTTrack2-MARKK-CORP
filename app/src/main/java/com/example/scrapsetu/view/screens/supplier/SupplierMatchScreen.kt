@@ -20,8 +20,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -287,38 +287,21 @@ private fun SupplierMatchCard(
     ) {
         Column {
             Box {
-                if (!listing?.imageUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = listing?.imageUrl,
-                        contentDescription = "Listing image",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                    )
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(Color.Black.copy(alpha = 0.08f))
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
-                                        MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
-                                    )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.Verified, contentDescription = null, tint = Color.White)
-                    }
-                }
+                AsyncImage(
+                    model = listing?.imageUrl?.takeIf { it.isNotBlank() },
+                    contentDescription = "Listing photo",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    placeholder = ColorPainter(MaterialTheme.colorScheme.surfaceVariant),
+                    error = ColorPainter(MaterialTheme.colorScheme.surfaceVariant)
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.08f))
+                )
 
                 Surface(
                     color = statusContainerColor,

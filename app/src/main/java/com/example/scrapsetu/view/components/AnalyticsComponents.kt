@@ -39,6 +39,10 @@ import com.example.scrapsetu.data.model.SmartMatchResult
 import com.example.scrapsetu.data.model.TrustScore
 import com.example.scrapsetu.vm.AnalyticsUiState
 import com.example.scrapsetu.data.repo.GroqAnalyticsRepository.AnalyticsSource
+import com.example.scrapsetu.ui.theme.EcoDeepForest
+import com.example.scrapsetu.ui.theme.EcoInteractionWhite
+import com.example.scrapsetu.ui.theme.EcoSageGrowth
+import com.example.scrapsetu.ui.theme.EcoSectionMint
 
 @Composable
 fun AnalyticsShell(
@@ -96,20 +100,10 @@ private fun AnalyticsSourceBadge(source: AnalyticsSource) {
         AnalyticsSource.GEMINI -> "AI Source: Gemini"
         AnalyticsSource.FALLBACK -> "AI Source: Fallback"
     }
-    val container = when (source) {
-        AnalyticsSource.GROQ -> MaterialTheme.colorScheme.primaryContainer
-        AnalyticsSource.GEMINI -> MaterialTheme.colorScheme.secondaryContainer
-        AnalyticsSource.FALLBACK -> MaterialTheme.colorScheme.tertiaryContainer
-    }
-    val contentColor = when (source) {
-        AnalyticsSource.GROQ -> MaterialTheme.colorScheme.onPrimaryContainer
-        AnalyticsSource.GEMINI -> MaterialTheme.colorScheme.onSecondaryContainer
-        AnalyticsSource.FALLBACK -> MaterialTheme.colorScheme.onTertiaryContainer
-    }
 
     Surface(
         shape = RoundedCornerShape(14.dp),
-        color = container,
+        color = EcoDeepForest,
         modifier = Modifier.padding(start = 2.dp)
     ) {
         Text(
@@ -117,7 +111,7 @@ private fun AnalyticsSourceBadge(source: AnalyticsSource) {
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
-            color = contentColor
+            color = Color.White
         )
     }
 }
@@ -335,45 +329,106 @@ private fun BuyerMatchRow(match: BuyerMatch) {
 
 @Composable
 fun SellerAnalyticsCard(analytics: SellerAnalytics) {
+    val performanceSummary = analytics.performanceSummary
+        .takeIf { it.isNotBlank() && !it.contains("empty", ignoreCase = true) }
+        ?: "Keep listings active and complete to improve your match quality."
+    val improvementTip = analytics.improvementTip
+        .takeIf { it.isNotBlank() }
+        ?: "Add clearer photos and exact quantity for better buyer trust."
+    val suggestedCategory = analytics.suggestedCategory
+        .takeIf { it.isNotBlank() }
+        ?: "Plastic"
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = EcoSectionMint),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Your Performance", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Your Performance", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = EcoDeepForest)
 
             ScoreBar(
                 label = "Listing quality",
                 score = analytics.listingQualityScore,
-                color = MaterialTheme.colorScheme.primary
+                color = EcoDeepForest
             )
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = EcoInteractionWhite.copy(alpha = 0.75f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                        Text(
+                            text = "Active Listings",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = analytics.activeListings.toString(),
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = EcoDeepForest
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = EcoInteractionWhite.copy(alpha = 0.75f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+                        Text(
+                            text = "Conversion",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "${analytics.conversionRatePct}%",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = EcoDeepForest
+                        )
+                    }
+                }
+            }
+
             Text(
-                text = analytics.performanceSummary,
+                text = performanceSummary,
                 fontSize = 13.sp,
                 lineHeight = 18.sp
             )
 
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                color = EcoSageGrowth.copy(alpha = 0.2f),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.padding(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "TIP",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = EcoDeepForest,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = analytics.improvementTip,
+                        text = improvementTip,
                         fontSize = 12.sp,
                         lineHeight = 16.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -382,6 +437,7 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
             }
 
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -392,14 +448,14 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
                 )
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer
+                    color = EcoSageGrowth
                 ) {
                     Text(
-                        text = analytics.suggestedCategory,
+                        text = suggestedCategory,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }

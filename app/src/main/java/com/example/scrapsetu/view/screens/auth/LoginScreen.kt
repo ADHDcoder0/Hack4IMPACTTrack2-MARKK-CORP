@@ -41,6 +41,7 @@ fun LoginScreen(
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
+    var hasNavigated by remember { mutableStateOf(false) }
     var emailError by remember { mutableStateOf("") }
     var passwordError by remember { mutableStateOf("") }
 
@@ -59,6 +60,7 @@ fun LoginScreen(
     }
 
     LaunchedEffect(authState, userRole) {
+        if (hasNavigated) return@LaunchedEffect
         if (authState !is AuthState.Success) return@LaunchedEffect
 
         if (userRole == null) {
@@ -66,8 +68,8 @@ fun LoginScreen(
             return@LaunchedEffect
         }
 
-        if (userRole == "supplier") onSupplierLogin()
-        else onBuyerLogin()
+        hasNavigated = true
+        if (userRole == "supplier") onSupplierLogin() else onBuyerLogin()
     }
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -157,11 +159,11 @@ fun LoginScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color.Transparent,
                                 unfocusedBorderColor = Color.Transparent,
-                                focusedContainerColor = MaterialTheme.colorScheme.secondary.copy(
-                                    alpha = 0.35f
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.55f
                                 ),
-                                unfocusedContainerColor = MaterialTheme.colorScheme.secondary.copy(
-                                    alpha = 0.35f
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.45f
                                 )
                             ),
                             modifier = Modifier.fillMaxWidth()
@@ -216,11 +218,11 @@ fun LoginScreen(
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color.Transparent,
                                 unfocusedBorderColor = Color.Transparent,
-                                focusedContainerColor = MaterialTheme.colorScheme.secondary.copy(
-                                    alpha = 0.35f
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.55f
                                 ),
-                                unfocusedContainerColor = MaterialTheme.colorScheme.secondary.copy(
-                                    alpha = 0.35f
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = 0.45f
                                 )
                             ),
                             modifier = Modifier.fillMaxWidth()

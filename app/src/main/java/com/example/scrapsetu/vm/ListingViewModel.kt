@@ -7,8 +7,11 @@ import com.example.scrapsetu.data.repo.AuthRepository
 import com.example.scrapsetu.data.repo.ListingRepository
 import com.example.scrapsetu.data.repo.StorageRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -25,6 +28,24 @@ class ListingViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow<ListingState>(ListingState.Idle)
     val uiState: StateFlow<ListingState> = _uiState
+
+    private val _selectedMaterialFilter = MutableStateFlow<String?>(null)
+    val selectedMaterialFilter: StateFlow<String?> = _selectedMaterialFilter
+
+    private val _selectedStateFilter = MutableStateFlow<String?>(null)
+    val selectedStateFilter: StateFlow<String?> = _selectedStateFilter
+
+    val filteredListings: StateFlow<List<Listing>> = combine(
+        _listings,
+        _selectedMaterialFilter,
+        _selectedStateFilter
+    ) { listings, material, state ->
+        listings.filter { listing ->
+            val materialPass = material.isNullOrBlank() || listing.wasteType.equals(material, ignoreCase = true)
+            val statePass = state.isNullOrBlank() || listing.location.contains(state, ignoreCase = true)
+            materialPass && statePass
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var isLoadingActiveListings = false
     private var isLoadingSupplierListings = false
@@ -43,6 +64,16 @@ class ListingViewModel @Inject constructor(
                 isLoadingActiveListings = false
             }
         }
+    }
+
+    fun applyFilters(material: String?, state: String?) {
+        _selectedMaterialFilter.value = material?.takeIf { it.isNotBlank() }
+        _selectedStateFilter.value = state?.takeIf { it.isNotBlank() }
+    }
+
+    fun clearFilters() {
+        _selectedMaterialFilter.value = null
+        _selectedStateFilter.value = null
     }
 
     fun createListing(
@@ -117,9 +148,12 @@ class ListingViewModel @Inject constructor(
                 android.util.Log.d("ListingVM", "imageBytes null: ${imageBytes == null}")
                 val supplierId = authRepo.currentUserId() ?: throw Exception("Not logged in")
                 android.util.Log.d("ListingVM", "supplierId: $supplierId")
-                val imageUrl = if (imageBytes != null) {
-                    storageRepo.uploadImage(imageBytes, mimeType, supplierId)
-                } else ""
+                val bytes = imageBytes ?: throw IllegalStateException("Photo upload failed: image is required")
+                val imageUrl = try {
+                    storageRepo.uploadImage(bytes, mimeType, supplierId)
+                } catch (e: Exception) {
+                    throw IllegalStateException("Photo upload failed: ${e.message}")
+                }
                 android.util.Log.d("ListingVM", "imageUrl: $imageUrl")
                 listingRepo.createListing(
                     Listing(

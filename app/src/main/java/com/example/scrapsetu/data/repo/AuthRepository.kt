@@ -15,19 +15,37 @@ class AuthRepository(
 
     private val client = SupabaseClientProvider.client
 
-    suspend fun signUp(email: String, password: String, name: String, role: String, location: String) {
+    suspend fun signUp(
+        email: String,
+        password: String,
+        name: String,
+        role: String,
+        location: String,
+        businessName: String,
+        phone: String,
+        state: String,
+        businessType: String,
+        wasteCategories: List<String>,
+        monthlyVolume: Int
+    ) {
         client.auth.signUpWith(Email) {
             this.email = email
             this.password = password
         }
         val userId = client.auth.currentUserOrNull()?.id ?: return
-        client.postgrest["users"].insert(
+        client.postgrest["users"].upsert(
             User(
                 id = userId,
                 email = email,
                 role = role,
                 name = name,
-                location = location
+                location = location,
+                businessName = businessName,
+                phone = phone,
+                state = state,
+                businessType = businessType,
+                wasteCategories = wasteCategories,
+                monthlyVolume = monthlyVolume
             )
         )
     }
@@ -72,19 +90,23 @@ class AuthRepository(
 
     suspend fun getCurrentUser(): User? {
         val id = currentUserId() ?: return null
-        return client.postgrest["users"]
-            .select { filter { eq("id", id) } }
-            .decodeSingleOrNull<User>()
+        return runCatching {
+            client.postgrest["users"]
+                .select { filter { eq("id", id) } }
+                .decodeSingleOrNull<User>()
+        }.getOrNull()
     }
 
     suspend fun getUsersByIds(ids: List<String>): Map<String, User> {
         if (ids.isEmpty()) return emptyMap()
 
         val distinctIds = ids.distinct().toSet()
-        return client.postgrest["users"]
-            .select()
-            .decodeList<User>()
-            .filter { it.id in distinctIds }
-            .associateBy { it.id }
+        return runCatching {
+            client.postgrest["users"]
+                .select()
+                .decodeList<User>()
+                .filter { it.id in distinctIds }
+                .associateBy { it.id }
+        }.getOrDefault(emptyMap())
     }
 }
