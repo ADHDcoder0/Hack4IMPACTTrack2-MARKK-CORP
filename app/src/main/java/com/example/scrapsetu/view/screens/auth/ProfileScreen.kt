@@ -59,12 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.scrapsetu.ui.theme.EcoDeepForest
-import com.example.scrapsetu.ui.theme.EcoInteractionWhite
-import com.example.scrapsetu.ui.theme.EcoMintVapor
-import com.example.scrapsetu.ui.theme.EcoOnSurface
-import com.example.scrapsetu.ui.theme.EcoOnSurfaceVariant
 import com.example.scrapsetu.ui.theme.EcoSageGrowth
-import com.example.scrapsetu.ui.theme.EcoSectionMint
 import com.example.scrapsetu.ui.theme.EcoSurfaceVariant
 import com.example.scrapsetu.view.components.AnalyticsShell
 import com.example.scrapsetu.view.components.TrustScoreCard
@@ -152,10 +147,10 @@ fun ProfileScreen(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = EcoMintVapor,
-                    titleContentColor = EcoOnSurface,
-                    navigationIconContentColor = EcoOnSurface,
-                    actionIconContentColor = EcoOnSurface
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground
                 )
             )
         }
@@ -167,8 +162,8 @@ fun ProfileScreen(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            EcoMintVapor,
-                            EcoSectionMint
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.surfaceContainerLow
                         )
                     )
                 )
@@ -178,7 +173,7 @@ fun ProfileScreen(
         ) {
             Card(
                 shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = EcoInteractionWhite),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -193,7 +188,7 @@ fun ProfileScreen(
                             .size(84.dp)
                             .background(
                                 brush = Brush.linearGradient(
-                                    colors = listOf(EcoDeepForest, Color(0xFF1B4332))
+                                    colors = listOf(EcoDeepForest, EcoSageGrowth)
                                 ),
                                 shape = CircleShape
                             ),
@@ -202,7 +197,7 @@ fun ProfileScreen(
                         Text(
                             text = initials,
                             style = MaterialTheme.typography.headlineMedium,
-                            color = EcoInteractionWhite,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontWeight = FontWeight.ExtraBold
                         )
                     }
@@ -211,7 +206,7 @@ fun ProfileScreen(
                         Text(
                             text = displayName,
                             style = MaterialTheme.typography.headlineSmall,
-                            color = EcoOnSurface,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -219,7 +214,7 @@ fun ProfileScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
-                                color = EcoSectionMint,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
                                 tonalElevation = 0.dp
                             ) {
                                 Text(
@@ -227,13 +222,13 @@ fun ProfileScreen(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.labelMedium,
                                     fontWeight = FontWeight.Bold,
-                                    color = EcoSageGrowth
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                             Text(
                                 text = if (resolvedRole.equals("supplier", ignoreCase = true)) "Material Provider" else "Head of Procurement",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = EcoOnSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -244,14 +239,14 @@ fun ProfileScreen(
 
             Card(
                 shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = EcoInteractionWhite),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(
                         text = "CONTACT INFORMATION",
                         style = MaterialTheme.typography.labelLarge,
-                        color = EcoSageGrowth,
+                        color = MaterialTheme.colorScheme.secondary,
                         fontWeight = FontWeight.ExtraBold
                     )
 
@@ -290,7 +285,7 @@ fun ProfileScreen(
 
             Card(
                 shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = EcoInteractionWhite),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -301,14 +296,14 @@ fun ProfileScreen(
                         text = "SETTINGS & PREFERENCES",
                         modifier = Modifier.padding(horizontal = 2.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelLarge,
-                        color = EcoSageGrowth,
+                        color = MaterialTheme.colorScheme.secondary,
                         fontWeight = FontWeight.ExtraBold
                     )
 
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(18.dp),
-                        color = EcoSectionMint
+                        color = MaterialTheme.colorScheme.surfaceContainerLow
                     ) {
                         Column(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -318,12 +313,16 @@ fun ProfileScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Icon(Icons.Filled.ManageAccounts, contentDescription = null, tint = EcoOnSurface)
+                                Icon(
+                                    Icons.Filled.ManageAccounts,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
                                 Text(
                                     text = "Account Details",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = EcoOnSurface
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
 
@@ -380,7 +379,7 @@ fun ProfileScreen(
             Text(
                 text = "App Version 2.4.1 (Stable)",
                 style = MaterialTheme.typography.labelMedium,
-                color = EcoOnSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
@@ -415,12 +414,12 @@ private fun ContactInfoRow(
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelMedium,
-                color = EcoOnSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.titleMedium,
-                color = EcoOnSurface,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -438,26 +437,26 @@ private fun MetricStatCard(
 ) {
     Card(
         shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = EcoInteractionWhite),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = modifier
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelSmall,
-                color = EcoSageGrowth,
+                color = MaterialTheme.colorScheme.secondary,
                 fontWeight = FontWeight.ExtraBold
             )
             Text(
                 text = value,
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = EcoDeepForest
+                color = MaterialTheme.colorScheme.primary
             )
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.labelSmall,
-                color = EcoOnSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -472,10 +471,10 @@ private fun SettingRow(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .background(color = EcoSectionMint, shape = RoundedCornerShape(18.dp))
+            .background(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(18.dp))
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
-        color = EcoSectionMint
+        color = MaterialTheme.colorScheme.surfaceContainerLow
     ) {
         Row(
             modifier = Modifier
@@ -486,9 +485,14 @@ private fun SettingRow(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 icon()
-                Text(text = text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = EcoOnSurface)
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
-            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = EcoOnSurfaceVariant)
+            Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -506,13 +510,13 @@ private fun ProfileDetailLine(
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
-            color = EcoOnSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(0.38f)
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,
-            color = EcoOnSurface,
+            color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(0.62f)
         )

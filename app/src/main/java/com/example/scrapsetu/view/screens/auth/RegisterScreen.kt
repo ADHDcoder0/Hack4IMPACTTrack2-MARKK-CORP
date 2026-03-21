@@ -33,6 +33,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -439,10 +440,36 @@ private fun StateDropdown(
             colors = fieldColors()
         )
 
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .background(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(16.dp)
+                )
+        ) {
             states.forEach { state ->
+                val isSelected = selectedState == state
                 DropdownMenuItem(
-                    text = { Text(state) },
+                    text = {
+                        Text(
+                            text = state,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = MaterialTheme.colorScheme.onSurface,
+                        leadingIconColor = MaterialTheme.colorScheme.primary,
+                        trailingIconColor = MaterialTheme.colorScheme.primary,
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                    ),
+                    modifier = Modifier.background(
+                        if (isSelected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                        else Color.Transparent,
+                        shape = RoundedCornerShape(12.dp)
+                    ),
                     onClick = {
                         onSelected(state)
                         expanded = false

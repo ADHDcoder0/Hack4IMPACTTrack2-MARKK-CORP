@@ -50,7 +50,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.example.scrapsetu.data.model.ChatUiState
@@ -94,12 +93,16 @@ fun ChatScreen(
             TopAppBar(
                 title = {
                     Column {
-                        Text(otherUserName, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(
+                            text = otherUserName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
                         if (state is ChatUiState.Ready) {
                             val count = (state as ChatUiState.Ready).messages.size
                             Text(
                                 "$count / $MESSAGE_LIMIT messages",
-                                fontSize = 11.sp,
+                                style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -156,7 +159,7 @@ fun ChatScreen(
                                 Text(
                                     "Message limit reached ($MESSAGE_LIMIT). Finalize the deal to continue.",
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    fontSize = 12.sp,
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = MaterialTheme.colorScheme.onErrorContainer
                                 )
                             }
@@ -239,8 +242,7 @@ private fun MessageBubble(message: Message, isMine: Boolean) {
                             text = message.content,
                             color = if (isMine) MaterialTheme.colorScheme.onPrimary
                             else MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
                 }
@@ -253,14 +255,14 @@ private fun MessageBubble(message: Message, isMine: Boolean) {
             ) {
                 Text(
                     formatTime(message.createdAt),
-                    fontSize = 10.sp,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
                 if (isMine) {
                     Text(
                         if (message.isRead) "✓✓" else "✓",
-                        fontSize = 10.sp,
-                        color = if (message.isRead) Color(0xFF1A73E8)
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (message.isRead) MaterialTheme.colorScheme.secondary
                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                 }
@@ -297,7 +299,7 @@ private fun ChatInputBar(
                 placeholder = {
                     Text(
                         if (limitReached) "Limit reached" else "Message...",
-                        fontSize = 14.sp
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 },
                 enabled = !limitReached && !sending,

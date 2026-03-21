@@ -7,6 +7,7 @@ import com.example.scrapsetu.data.local.ScrapSetuDatabase
 import com.example.scrapsetu.data.local.SessionDao
 import com.example.scrapsetu.data.remote.SupabaseClientProvider
 import com.example.scrapsetu.data.repo.AuthRepository
+import com.example.scrapsetu.data.repo.BuyerRequestRepository
 import com.example.scrapsetu.data.repo.GroqAnalyticsRepository
 import com.example.scrapsetu.data.repo.GroqRepository
 import com.example.scrapsetu.data.repo.ListingRepository
@@ -86,6 +87,9 @@ object AppModule {
 
     @Provides @Singleton
     fun provideMasterDataRepository(): MasterDataRepository = MasterDataRepository()
+
+    @Provides @Singleton
+    fun provideBuyerRequestRepository(): BuyerRequestRepository = BuyerRequestRepository()
 
     @Provides @Singleton
     fun provideSmartMatchInsightRepository(): SmartMatchInsightRepository = SmartMatchInsightRepository()

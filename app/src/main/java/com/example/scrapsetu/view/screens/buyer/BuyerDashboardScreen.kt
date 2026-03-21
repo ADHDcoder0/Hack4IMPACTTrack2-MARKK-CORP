@@ -1,6 +1,7 @@
 package com.example.scrapsetu.view.screens.buyer
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -77,6 +78,7 @@ fun BuyerDashboardScreen(
     onViewMatches: () -> Unit,
     onOpenDashboard: () -> Unit,
     onOpenProfile: () -> Unit,
+    onOpenRequests: () -> Unit,
     listingViewModel: ListingViewModel = hiltViewModel(),
     matchViewModel: MatchViewModel = hiltViewModel(),
     groqViewModel: GroqViewModel = hiltViewModel(),
@@ -190,8 +192,18 @@ fun BuyerDashboardScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
-                    TextButton(onClick = onSignOut) {
-                        Icon(Icons.Filled.ExitToApp, contentDescription = "Sign Out")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onOpenRequests) {
+                            Text(
+                                text = "My Requests",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        TextButton(onClick = onSignOut) {
+                            Icon(Icons.Filled.ExitToApp, contentDescription = "Sign Out")
+                        }
                     }
                 }
             }
@@ -494,7 +506,7 @@ private fun BuyerListingCard(
                 }
 
                 Surface(
-                    color = Color.White.copy(alpha = 0.92f),
+                    color = EcoInteractionWhite.copy(alpha = 0.92f),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .align(Alignment.BottomStart)
@@ -564,13 +576,13 @@ private fun BuyerListingCard(
                 if (isMatched) {
                     Surface(
                         shape = RoundedCornerShape(999.dp),
-                        color = Color(0xFFD8F3DC),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Matched",
                             modifier = Modifier.padding(vertical = 10.dp),
-                            color = Color(0xFF2E7D32),
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center
                         )
@@ -686,6 +698,28 @@ private fun MarketTrendCard(
     listings: List<Listing>,
     analyticsState: AnalyticsUiState
 ) {
+    val isDark = isSystemInDarkTheme()
+    val cardContainer = if (isDark) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+    } else {
+        MaterialTheme.colorScheme.secondaryContainer
+    }
+    val accentChipColor = if (isDark) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+    } else {
+        MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f)
+    }
+    val titleColor = if (isDark) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val metricTileColor = if (isDark) {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+
     val totalValue = listings.sumOf { it.quantityKg * it.pricePerKg }
     val totalQuantity = listings.sumOf { it.quantityKg }
     val avgPrice = listings.map { it.pricePerKg }.takeIf { it.isNotEmpty() }?.average() ?: 0.0
@@ -705,18 +739,18 @@ private fun MarketTrendCard(
 
     Card(
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = EcoDeepForest),
+        colors = CardDefaults.cardColors(containerColor = cardContainer),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = EcoInteractionWhite.copy(alpha = 0.12f)
+                color = accentChipColor
             ) {
                 Text(
                     text = "AI MARKET PULSE",
                     style = MaterialTheme.typography.labelSmall,
-                    color = EcoInteractionWhite,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                 )
             }
@@ -726,13 +760,13 @@ private fun MarketTrendCard(
                 text = "$trendLabel Momentum\nfor $dominantMaterial",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold,
-                color = EcoInteractionWhite
+                color = titleColor
             )
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
                 text = trendInsight,
-                color = EcoInteractionWhite.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(modifier = Modifier.height(14.dp))
@@ -743,26 +777,19 @@ private fun MarketTrendCard(
                 Column {
                     Text(
                         text = "₹${"%.0f".format(totalValue)}",
-                        color = EcoInteractionWhite,
+                        color = titleColor,
                         style = MaterialTheme.typography.headlineSmall
                     )
-                    Text("ACTIVE VALUE", color = EcoInteractionWhite.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+                    Text("ACTIVE VALUE", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
-                Spacer(modifier = Modifier.width(14.dp))
-                Box(
-                    modifier = Modifier
-                        .height(28.dp)
-                        .width(1.dp)
-                        .background(EcoInteractionWhite.copy(alpha = 0.2f))
-                )
                 Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text(
                         text = "${"%.0f".format(totalQuantity)} kg",
-                        color = EcoInteractionWhite,
+                        color = titleColor,
                         style = MaterialTheme.typography.headlineSmall
                     )
-                    Text("OPEN INVENTORY", color = EcoInteractionWhite.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+                    Text("OPEN INVENTORY", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
             }
 
@@ -770,7 +797,7 @@ private fun MarketTrendCard(
 
             Surface(
                 shape = RoundedCornerShape(14.dp),
-                color = EcoSectionMint.copy(alpha = 0.18f),
+                color = metricTileColor,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -781,13 +808,13 @@ private fun MarketTrendCard(
                     Text(
                         text = "Avg Price",
                         style = MaterialTheme.typography.labelSmall,
-                        color = EcoInteractionWhite.copy(alpha = 0.75f)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
                         text = "₹${"%.0f".format(avgPrice)}/kg",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = EcoInteractionWhite
+                        color = titleColor
                     )
                 }
             }
@@ -800,9 +827,9 @@ private fun ListingsHeader(onViewAllClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "New Opportunities",
                 style = MaterialTheme.typography.headlineSmall,
@@ -815,9 +842,18 @@ private fun ListingsHeader(onViewAllClick: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
         }
-        TextButton(onClick = onViewAllClick) {
-            Text("View All")
-            Icon(Icons.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+
+        TextButton(
+            onClick = onViewAllClick,
+            modifier = Modifier.padding(start = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("View All")
+                Icon(Icons.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
+            }
         }
     }
 }
@@ -924,7 +960,7 @@ private fun SmartMatchDialog(
                                 Brush.linearGradient(
                                     listOf(
                                         EcoDeepForest,
-                                        Color(0xFF1B4332)
+                                        EcoSageGrowth
                                     )
                                 )
                             )
@@ -942,7 +978,7 @@ private fun SmartMatchDialog(
                             ) {
                                 Surface(
                                     shape = RoundedCornerShape(24.dp),
-                                    color = Color.White.copy(alpha = 0.14f)
+                                    color = EcoInteractionWhite.copy(alpha = 0.14f)
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -1208,7 +1244,7 @@ private fun SmartMatchDialog(
                             .fillMaxWidth()
                             .height(54.dp)
                             .background(
-                                brush = Brush.linearGradient(listOf(EcoDeepForest, Color(0xFF1B4332))),
+                                brush = Brush.linearGradient(listOf(EcoDeepForest, EcoSageGrowth)),
                                 shape = RoundedCornerShape(28.dp)
                             ),
                         shape = RoundedCornerShape(28.dp),

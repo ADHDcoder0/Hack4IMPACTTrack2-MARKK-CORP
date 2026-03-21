@@ -31,6 +31,10 @@ class GroqRepository {
     }
 
     suspend fun getSmartMatchSuggestion(listing: Listing): String {
+        if (BuildConfig.GROQ_API_KEY.isBlank()) {
+            return localSmartMatchFallback(listing)
+        }
+
         val materialType = listing.wasteType.trim()
         val quantity = listing.quantityKg
         val price = listing.pricePerKg
@@ -86,19 +90,24 @@ class GroqRepository {
             return localSmartMatchFallback(listing)
         }
 
-        val json = Json { ignoreUnknownKeys = true }
-        val body = json.parseToJsonElement(response.bodyAsText())
-        return body
-            .jsonObject["choices"]
-            ?.jsonArray?.get(0)
-            ?.jsonObject?.get("message")
-            ?.jsonObject?.get("content")
-            ?.jsonPrimitive?.content
-            ?.takeIf { it.isNotBlank() }
-            ?: localSmartMatchFallback(listing)
+        return runCatching {
+            val json = Json { ignoreUnknownKeys = true }
+            val body = json.parseToJsonElement(response.bodyAsText())
+            body
+                .jsonObject["choices"]
+                ?.jsonArray?.getOrNull(0)
+                ?.jsonObject?.get("message")
+                ?.jsonObject?.get("content")
+                ?.jsonPrimitive?.content
+                ?.takeIf { it.isNotBlank() }
+        }.getOrNull() ?: localSmartMatchFallback(listing)
     }
 
     suspend fun getPriceEstimate(materialType: String, quantity: Double, state: String): PriceEstimate {
+        if (BuildConfig.GROQ_API_KEY.isBlank()) {
+            return localPriceEstimateFallback(materialType.trim(), quantity)
+        }
+
         val cleanMaterial = materialType.trim()
         val cleanState = state.trim()
         if (cleanMaterial.isBlank() || quantity <= 0.0 || cleanState.isBlank()) {
@@ -142,14 +151,15 @@ class GroqRepository {
         }
 
         val parser = Json { ignoreUnknownKeys = true }
-        val rawText = parser.parseToJsonElement(response.bodyAsText())
-            .jsonObject["choices"]
-            ?.jsonArray?.getOrNull(0)
-            ?.jsonObject?.get("message")
-            ?.jsonObject?.get("content")
-            ?.jsonPrimitive?.content
-            ?.trim()
-            ?: return localPriceEstimateFallback(cleanMaterial, quantity)
+        val rawText = runCatching {
+            parser.parseToJsonElement(response.bodyAsText())
+                .jsonObject["choices"]
+                ?.jsonArray?.getOrNull(0)
+                ?.jsonObject?.get("message")
+                ?.jsonObject?.get("content")
+                ?.jsonPrimitive?.content
+                ?.trim()
+        }.getOrNull() ?: return localPriceEstimateFallback(cleanMaterial, quantity)
 
         return runCatching {
             val jsonBody = extractJsonObject(rawText)

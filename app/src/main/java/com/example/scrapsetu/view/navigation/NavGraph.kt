@@ -16,6 +16,7 @@ import com.example.scrapsetu.view.screens.auth.LoginScreen
 import com.example.scrapsetu.view.screens.auth.ProfileScreen
 import com.example.scrapsetu.view.screens.auth.RegisterScreen
 import com.example.scrapsetu.view.screens.buyer.BuyerDashboardScreen
+import com.example.scrapsetu.view.screens.buyer.BuyerRequestsScreen
 import com.example.scrapsetu.view.screens.buyer.MatchStatusScreen
 import com.example.scrapsetu.view.screens.chat.ChatScreen
 import com.example.scrapsetu.view.screens.supplier.SupplierDashboardScreen
@@ -28,6 +29,7 @@ sealed class Screen(val route: String) {
     object Register : Screen("register")
     object SupplierDashboard : Screen("supplier_dashboard")
     object BuyerDashboard : Screen("buyer_dashboard")
+    object BuyerRequests : Screen("buyer_requests")
     object MatchStatus : Screen("match_status")
     object SupplierMatches : Screen("supplier_matches")
     object Chat : Screen("chat/{matchId}/{otherUserId}/{otherUserName}") {
@@ -115,7 +117,15 @@ fun NavGraph(navController: NavHostController) {
                 },
                 onOpenProfile = {
                     navController.navigate(Screen.Profile.createRoute("buyer"))
+                },
+                onOpenRequests = {
+                    navController.navigate(Screen.BuyerRequests.route)
                 }
+            )
+        }
+        composable(Screen.BuyerRequests.route) {
+            BuyerRequestsScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(Screen.MatchStatus.route) {

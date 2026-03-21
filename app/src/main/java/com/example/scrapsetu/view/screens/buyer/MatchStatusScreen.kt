@@ -347,7 +347,11 @@ private fun MatchCard(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Filled.Verified, contentDescription = null, tint = Color.White)
+                    Icon(
+                        Icons.Filled.Verified,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary
+                    )
                 }
 
                 Column(modifier = Modifier.weight(1f)) {

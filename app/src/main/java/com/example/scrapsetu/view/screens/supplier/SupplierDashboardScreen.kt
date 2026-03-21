@@ -357,7 +357,11 @@ private fun ListingCard(
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Filled.Verified, contentDescription = null, tint = Color.White)
+                        Icon(
+                            Icons.Filled.Verified,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
                     }
                 }
 
@@ -1043,11 +1047,39 @@ private fun <T> StructuredDropdownField(
 
         ExposedDropdownMenu(
             expanded = expanded && enabled,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier
+                .background(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(16.dp)
+                )
         ) {
             options.forEach { option ->
+                val optionText = optionLabel(option)
+                val isSelected = selectedOptionLabel == optionText
                 DropdownMenuItem(
-                    text = { Text(optionLabel(option)) },
+                    text = {
+                        Text(
+                            text = optionText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = MaterialTheme.colorScheme.onSurface,
+                        leadingIconColor = MaterialTheme.colorScheme.primary,
+                        trailingIconColor = MaterialTheme.colorScheme.primary,
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                    ),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (isSelected) {
+                                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                            } else {
+                                Color.Transparent
+                            }
+                        ),
                     onClick = {
                         onOptionSelected(option)
                         expanded = false

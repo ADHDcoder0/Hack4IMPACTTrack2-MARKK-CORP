@@ -47,13 +47,23 @@ class ImageDetectionRepository @Inject constructor(
     }
 
     suspend fun detectAndPrice(imageUri: Uri): Result<DetectionWithPricing> = runCatching {
-        if (geminiApiKey.isBlank()) {
-            throw IllegalStateException("Gemini API key is missing")
-        }
         val base64 = uriToBase64(imageUri)
-        val detection = callGeminiVision(base64)
-        val pricing = callGroqPricing(detection)
-        DetectionWithPricing(detection = detection, pricing = pricing)
+        val detection = if (geminiApiKey.isBlank()) {
+            localDetectionFallback()
+        } else {
+            runCatching { callGeminiVision(base64) }
+                .getOrElse { localDetectionFallback() }
+        }
+
+        val normalizedDetection = normalizeDetection(detection)
+
+        val pricing = if (groqApiKey.isBlank()) {
+            localPricingFallback(normalizedDetection)
+        } else {
+            runCatching { callGroqPricing(normalizedDetection) }
+                .getOrElse { localPricingFallback(normalizedDetection) }
+        }
+        DetectionWithPricing(detection = normalizedDetection, pricing = pricing)
     }
 
     private suspend fun callGeminiVision(base64Image: String): ImageDetectionResult {
@@ -62,7 +72,7 @@ You are a scrap material classifier for an Indian B2B waste marketplace.
 Respond ONLY with a single valid JSON object and no markdown.
 
 Allowed waste_category_slug values:
-metal_scrap | e_waste | plastic | paper | glass | rubber | textile | organic | mixed
+metal_scrap | e_waste | plastic_pallets | paper_cardboard | glass | rubber | textile | organic | mixed_waste
 
 {
   "waste_category_slug": "<slug>",
@@ -75,13 +85,52 @@ metal_scrap | e_waste | plastic | paper | glass | rubber | textile | organic | m
 Return only JSON.
         """.trimIndent()
 
-        val escaped = prompt
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
+        @Serializable
+        data class GeminiInlineData(
+            @SerialName("mimeType") val mimeType: String,
+            val data: String
+        )
 
-        val body =
-            """{"contents":[{"parts":[{"inline_data":{"mime_type":"image/jpeg","data":"$base64Image"}},{"text":"$escaped"}]}],"generationConfig":{"temperature":0.1,"maxOutputTokens":400}}"""
+        @Serializable
+        data class GeminiPart(
+            val text: String? = null,
+            @SerialName("inlineData") val inlineData: GeminiInlineData? = null
+        )
+
+        @Serializable
+        data class GeminiContent(val parts: List<GeminiPart>)
+
+        @Serializable
+        data class GeminiGenerationConfig(
+            val temperature: Double,
+            @SerialName("maxOutputTokens") val maxOutputTokens: Int
+        )
+
+        @Serializable
+        data class GeminiVisionRequest(
+            val contents: List<GeminiContent>,
+            val generationConfig: GeminiGenerationConfig
+        )
+
+        val body = GeminiVisionRequest(
+            contents = listOf(
+                GeminiContent(
+                    parts = listOf(
+                        GeminiPart(
+                            inlineData = GeminiInlineData(
+                                mimeType = "image/jpeg",
+                                data = base64Image
+                            )
+                        ),
+                        GeminiPart(text = prompt)
+                    )
+                )
+            ),
+            generationConfig = GeminiGenerationConfig(
+                temperature = 0.1,
+                maxOutputTokens = 400
+            )
+        )
 
         val discoveredModels = fetchGenerateContentModels()
         val fallbackModels = listOf(
@@ -182,6 +231,96 @@ Return only JSON.
             .jsonPrimitive.content
 
         return json.decodeFromString(raw.extractAndParseJson())
+    }
+
+    private fun normalizeDetection(detection: ImageDetectionResult): ImageDetectionResult {
+        val canonicalSlug = canonicalWasteSlug(detection.wasteCategorySlug)
+        val canonicalLabel = labelForSlug(canonicalSlug)
+        val confidence = detection.confidence.coerceIn(0, 100)
+        val quality = detection.quality
+            .trim()
+            .lowercase()
+            .let { raw -> if (raw in listOf("high", "medium", "low")) raw else "medium" }
+
+        val finalLabel = detection.wasteCategoryLabel
+            .takeIf { it.isNotBlank() }
+            ?: canonicalLabel
+
+        return detection.copy(
+            wasteCategorySlug = canonicalSlug,
+            wasteCategoryLabel = finalLabel,
+            quality = quality,
+            confidence = confidence
+        )
+    }
+
+    private fun canonicalWasteSlug(rawSlug: String): String {
+        val slug = rawSlug.trim().lowercase().replace('-', '_')
+        return when (slug) {
+            "plastic", "plastic_scrap" -> "plastic_pallets"
+            "paper", "cardboard", "paper_board", "paper_card_board" -> "paper_cardboard"
+            "mixed", "mixed_scrap" -> "mixed_waste"
+            "ewaste", "e_waste", "e-waste" -> "e_waste"
+            "metal", "metal_scrap" -> "metal_scrap"
+            "glass" -> "glass"
+            "rubber" -> "rubber"
+            "textile" -> "textile"
+            "organic", "bio" -> "organic"
+            else -> "mixed_waste"
+        }
+    }
+
+    private fun labelForSlug(slug: String): String = when (slug) {
+        "e_waste" -> "E-Waste"
+        "metal_scrap" -> "Metal Scrap"
+        "plastic_pallets" -> "Plastic Pallets"
+        "paper_cardboard" -> "Paper/Cardboard"
+        "glass" -> "Glass"
+        "rubber" -> "Rubber"
+        "textile" -> "Textile"
+        "organic" -> "Organic"
+        else -> "Mixed Waste"
+    }
+
+    private fun localDetectionFallback(): ImageDetectionResult {
+        return ImageDetectionResult(
+            wasteCategorySlug = "mixed_waste",
+            wasteCategoryLabel = "Mixed Waste",
+            quality = "medium",
+            confidence = 45,
+            description = "Auto fallback used due to unavailable model response.",
+            quantityHint = null
+        )
+    }
+
+    private fun localPricingFallback(detection: ImageDetectionResult): PriceSuggestion {
+        val baseRange = when (canonicalWasteSlug(detection.wasteCategorySlug)) {
+            "metal_scrap" -> 25 to 80
+            "e_waste" -> 10 to 200
+            "plastic_pallets" -> 5 to 25
+            "paper_cardboard" -> 8 to 15
+            "glass" -> 1 to 5
+            "rubber" -> 8 to 20
+            "textile" -> 3 to 12
+            "organic" -> 1 to 4
+            else -> 4 to 18
+        }
+
+        val qualityFactor = when (detection.quality.lowercase()) {
+            "high" -> 1.10
+            "low" -> 0.90
+            else -> 1.0
+        }
+
+        val min = (baseRange.first * qualityFactor).toInt().coerceAtLeast(1)
+        val max = (baseRange.second * qualityFactor).toInt().coerceAtLeast(min + 1)
+
+        return PriceSuggestion(
+            minPriceInr = min,
+            maxPriceInr = max,
+            unit = "per kg",
+            basis = "Fallback estimate derived from category baseline and quality tier."
+        )
     }
 
     private fun uriToBase64(uri: Uri): String {

@@ -17,6 +17,7 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -43,6 +44,13 @@ class GroqAnalyticsRepository @Inject constructor(
     @Named("groq_api_key") private val groqApiKey: String,
     @Named("gemini_api_key") private val geminiApiKey: String
 ) {
+
+    private data class MarketPriceStats(
+        val min: Int,
+        val max: Int,
+        val median: Int,
+        val sampleSize: Int
+    )
 
     enum class AnalyticsSource {
         GROQ,
@@ -89,6 +97,13 @@ class GroqAnalyticsRepository @Inject constructor(
             userListings.firstOrNull()
         }
 
+        val marketListings = runCatching { fetchMarketListings() }
+            .getOrDefault(emptyList())
+        val marketPriceStats = computeMarketPriceStats(
+            marketListings = marketListings,
+            targetListing = targetListing
+        )
+
         val completedDeals = recentMatches.count { it.status.equals("confirmed", ignoreCase = true) }
         val totalRequests = recentMatches.size
 
@@ -97,16 +112,21 @@ class GroqAnalyticsRepository @Inject constructor(
             listings = userListings,
             matches = recentMatches,
             targetListing = targetListing,
+            marketPriceStats = marketPriceStats,
             completedDeals = completedDeals,
             totalRequests = totalRequests
         )
 
-        val aiResponse = runCatching {
-            val rawJson = callGroq(prompt)
-            parseAnalyticsOrNull(rawJson)
-        }.recoverCatching {
-            if (it is GroqTimeoutException) null else throw it
-        }.getOrNull()
+        val aiResponse = if (groqApiKey.isBlank()) {
+            null
+        } else {
+            runCatching {
+                val rawJson = callGroq(prompt)
+                parseAnalyticsOrNull(rawJson)
+            }.recoverCatching {
+                if (it is GroqTimeoutException) null else throw it
+            }.getOrNull()
+        }
 
         if (aiResponse != null) {
             AnalyticsFetchResult(
@@ -116,6 +136,7 @@ class GroqAnalyticsRepository @Inject constructor(
                     listings = userListings,
                     matches = recentMatches,
                     targetListing = targetListing,
+                    marketPriceStats = marketPriceStats,
                     completedDeals = completedDeals,
                     totalRequests = totalRequests
                 ),
@@ -141,6 +162,7 @@ class GroqAnalyticsRepository @Inject constructor(
                         listings = userListings,
                         matches = recentMatches,
                         targetListing = targetListing,
+                        marketPriceStats = marketPriceStats,
                         completedDeals = completedDeals,
                         totalRequests = totalRequests
                     ),
@@ -154,6 +176,7 @@ class GroqAnalyticsRepository @Inject constructor(
                         listings = userListings,
                         matches = recentMatches,
                         targetListing = targetListing,
+                        marketPriceStats = marketPriceStats,
                         completedDeals = completedDeals,
                         totalRequests = totalRequests
                     ),
@@ -161,6 +184,7 @@ class GroqAnalyticsRepository @Inject constructor(
                     listings = userListings,
                     matches = recentMatches,
                     targetListing = targetListing,
+                    marketPriceStats = marketPriceStats,
                     completedDeals = completedDeals,
                     totalRequests = totalRequests
                 ),
@@ -192,6 +216,15 @@ class GroqAnalyticsRepository @Inject constructor(
             .decodeSingleOrNull<Listing>()
     }
 
+    private suspend fun fetchMarketListings(): List<Listing> {
+        return supabase.postgrest["listings"]
+            .select {
+                order("created_at", Order.DESCENDING)
+                limit(800)
+            }
+            .decodeList<Listing>()
+    }
+
     private suspend fun fetchRecentMatches(
         userId: String,
         userRole: String,
@@ -219,6 +252,7 @@ class GroqAnalyticsRepository @Inject constructor(
         listings: List<Listing>,
         matches: List<Match>,
         targetListing: Listing?,
+        marketPriceStats: MarketPriceStats,
         completedDeals: Int,
         totalRequests: Int
     ): String {
@@ -270,6 +304,12 @@ $listingSummary
 
 RECENT MATCH ACTIVITY (up to 10):
 $matchSummary
+
+MARKET PRICE CONTEXT (market-wide listing sample):
+- sample_size: ${marketPriceStats.sampleSize}
+- min_price_inr_per_kg: ${marketPriceStats.min}
+- median_price_inr_per_kg: ${marketPriceStats.median}
+- max_price_inr_per_kg: ${marketPriceStats.max}
 
 TASK:
 Return a JSON object with exactly these keys:
@@ -399,37 +439,74 @@ Rules:
             .replace("\r", "\\r")
             .replace("\t", "\\t")
 
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/" +
-            "gemini-1.5-flash:generateContent?key=$geminiApiKey"
+        val discoveredModels = fetchGeminiGenerateContentModels()
+        val fallbackModels = listOf(
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash"
+        )
+        val modelCandidates = (discoveredModels + fallbackModels).distinct()
 
-        val response = try {
-            httpClient.post(url) {
-                contentType(ContentType.Application.Json)
-                setBody(
-                    """{"contents":[{"parts":[{"text":"$escapedPrompt"}]}],"generationConfig":{"temperature":0.1,"maxOutputTokens":500}}"""
-                )
+        var lastError: Throwable? = null
+        for (model in modelCandidates) {
+            val attempt = runCatching {
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$geminiApiKey"
+                val response = try {
+                    httpClient.post(url) {
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """{"contents":[{"parts":[{"text":"$escapedPrompt"}]}],"generationConfig":{"temperature":0.1,"maxOutputTokens":500}}"""
+                        )
+                    }
+                } catch (_: HttpRequestTimeoutException) {
+                    throw GeminiTimeoutException()
+                }
+
+                val body = response.body<JsonObject>()
+                val content = body["candidates"]
+                    ?.jsonArray?.getOrNull(0)
+                    ?.jsonObject?.get("content")
+                    ?.jsonObject?.get("parts")
+                    ?.jsonArray?.getOrNull(0)
+                    ?.jsonObject?.get("text")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+
+                if (content.isNullOrBlank()) {
+                    throw IllegalStateException("Gemini returned an empty response")
+                }
+
+                sanitizeGroqJson(content)
             }
-        } catch (_: HttpRequestTimeoutException) {
-            throw GeminiTimeoutException()
+
+            val parsed = attempt.getOrNull()
+            if (!parsed.isNullOrBlank()) return parsed
+            lastError = attempt.exceptionOrNull()
         }
 
-        val body = response.body<JsonObject>()
-        val content = body["candidates"]
-            ?.jsonArray?.getOrNull(0)
-            ?.jsonObject?.get("content")
-            ?.jsonObject?.get("parts")
-            ?.jsonArray?.getOrNull(0)
-            ?.jsonObject?.get("text")
-            ?.jsonPrimitive
-            ?.contentOrNull
-            ?.trim()
-
-        if (content.isNullOrBlank()) {
-            throw IllegalStateException("Gemini returned an empty response")
-        }
-
-        return sanitizeGroqJson(content)
+        throw IllegalStateException(lastError?.message ?: "Gemini failed to return analytics content")
     }
+
+    private suspend fun fetchGeminiGenerateContentModels(): List<String> = runCatching {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$geminiApiKey"
+        val payload = httpClient.get(url).body<JsonObject>()
+        payload["models"]
+            ?.jsonArray
+            ?.mapNotNull { model ->
+                val modelObj = model.jsonObject
+                val methods = modelObj["supportedGenerationMethods"]
+                    ?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    .orEmpty()
+                if (!methods.any { it.equals("generateContent", ignoreCase = true) }) {
+                    null
+                } else {
+                    modelObj["name"]?.jsonPrimitive?.contentOrNull?.removePrefix("models/")
+                }
+            }
+            .orEmpty()
+    }.getOrDefault(emptyList())
 
     private fun parseAnalyticsOrNull(rawContent: String): AnalyticsResponse? {
         val sanitized = sanitizeGroqJson(rawContent)
@@ -453,18 +530,14 @@ Rules:
         listings: List<Listing>,
         matches: List<Match>,
         targetListing: Listing?,
+        marketPriceStats: MarketPriceStats,
         completedDeals: Int,
         totalRequests: Int
     ): AnalyticsResponse {
-        val averagePrice = listings
-            .map { it.pricePerKg }
-            .takeIf { it.isNotEmpty() }
-            ?.average()
-            ?: 80.0
-
-        val chosenPrice = (targetListing?.pricePerKg ?: averagePrice).coerceAtLeast(1.0)
-        val minPrice = (chosenPrice * 0.9).roundToInt()
-        val maxPrice = (chosenPrice * 1.1).roundToInt().coerceAtLeast(minPrice + 1)
+        val marketPriceSuggestion = computeMarketBackedPriceSuggestion(
+            targetListing = targetListing,
+            marketPriceStats = marketPriceStats
+        )
 
         val reliability = (55 + completedDeals * 8 - (totalRequests - completedDeals).coerceAtLeast(0) * 2)
             .coerceIn(35, 95)
@@ -518,10 +591,10 @@ Rules:
                 confidence = confidence
             ),
             priceSuggestion = PriceSuggestion(
-                minPriceInr = minPrice,
-                maxPriceInr = maxPrice,
+                minPriceInr = marketPriceSuggestion.minPriceInr,
+                maxPriceInr = marketPriceSuggestion.maxPriceInr,
                 unit = "per kg",
-                basis = "Estimated from your active listing prices and recent match outcomes."
+                basis = marketPriceSuggestion.basis
             ),
             demandForecast = DemandForecast(
                 trend = trend,
@@ -557,6 +630,7 @@ Rules:
         listings: List<Listing>,
         matches: List<Match>,
         targetListing: Listing?,
+        marketPriceStats: MarketPriceStats,
         completedDeals: Int,
         totalRequests: Int
     ): AnalyticsResponse {
@@ -652,9 +726,25 @@ Rules:
             unit = sanitizeUnit(base.priceSuggestion.unit),
             basis = sanitizeNarrative(
                 text = base.priceSuggestion.basis,
-                fallback = "Estimated from listing prices and active supply trends."
+                fallback = "Estimated from market-wide listing prices and active supply trends."
             )
-        )
+        ).let { incoming ->
+            val marketBacked = computeMarketBackedPriceSuggestion(
+                targetListing = targetListing,
+                marketPriceStats = marketPriceStats
+            )
+
+            val incomingTooNarrow = incoming.maxPriceInr - incoming.minPriceInr < 2
+            val incomingOutOfBand =
+                incoming.minPriceInr < (marketPriceStats.min * 0.5).roundToInt() ||
+                    incoming.maxPriceInr > (marketPriceStats.max * 1.6).roundToInt()
+
+            if (incomingTooNarrow || incomingOutOfBand) {
+                marketBacked
+            } else {
+                incoming
+            }
+        }
 
         val trustLooksGeneric =
             base.trustScore.score == 60 ||
@@ -923,6 +1013,69 @@ Rules:
             .removePrefix("```")
             .removeSuffix("```")
             .trim()
+    }
+
+    private fun computeMarketPriceStats(
+        marketListings: List<Listing>,
+        targetListing: Listing?
+    ): MarketPriceStats {
+        val targetWasteCategoryId = targetListing?.wasteCategoryId
+        val targetWasteType = targetListing?.wasteType?.trim()?.lowercase().orEmpty()
+
+        val scoped = marketListings.filter { listing ->
+            val byCategory = !targetWasteCategoryId.isNullOrBlank() && listing.wasteCategoryId == targetWasteCategoryId
+            val byWasteType = targetWasteType.isNotBlank() && listing.wasteType.trim().lowercase() == targetWasteType
+            byCategory || byWasteType
+        }
+
+        val samplePool = if (scoped.size >= 8) scoped else marketListings
+        val prices = samplePool
+            .map { it.pricePerKg }
+            .filter { it > 0.0 }
+            .sorted()
+
+        if (prices.isEmpty()) {
+            return MarketPriceStats(min = 40, max = 120, median = 75, sampleSize = 0)
+        }
+
+        fun percentile(p: Double): Int {
+            val index = ((prices.size - 1) * p).toInt().coerceIn(0, prices.lastIndex)
+            return prices[index].roundToInt().coerceAtLeast(1)
+        }
+
+        val min = percentile(0.10)
+        val median = percentile(0.50)
+        val max = percentile(0.90).coerceAtLeast(min + 1)
+
+        return MarketPriceStats(
+            min = min,
+            max = max,
+            median = median,
+            sampleSize = prices.size
+        )
+    }
+
+    private fun computeMarketBackedPriceSuggestion(
+        targetListing: Listing?,
+        marketPriceStats: MarketPriceStats
+    ): PriceSuggestion {
+        val anchorPrice = targetListing?.pricePerKg
+            ?.takeIf { it > 0.0 }
+            ?.roundToInt()
+            ?: marketPriceStats.median
+
+        val lower = maxOf(marketPriceStats.min, (anchorPrice * 0.90).roundToInt())
+        val upper = minOf(marketPriceStats.max, (anchorPrice * 1.10).roundToInt())
+
+        val min = lower.coerceAtLeast(1)
+        val max = upper.coerceAtLeast(min + 1)
+
+        return PriceSuggestion(
+            minPriceInr = min,
+            maxPriceInr = max,
+            unit = "per kg",
+            basis = "Estimated from market-wide listing sample with category-aware price bands."
+        )
     }
 }
 

@@ -3,10 +3,12 @@ package com.example.scrapsetu.view.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -236,7 +238,7 @@ fun DemandForecastChip(forecast: DemandForecast) {
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Text(trendArrow, fontSize = 12.sp, color = trendColor, fontWeight = FontWeight.Bold)
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = forecast.trend.replaceFirstChar { it.uppercase() },
@@ -257,6 +259,11 @@ fun DemandForecastChip(forecast: DemandForecast) {
                     lineHeight = 16.sp
                 )
             }
+            CircularPercentGraph(
+                percent = forecast.confidencePct,
+                color = trendColor,
+                modifier = Modifier.size(54.dp)
+            )
         }
     }
 }
@@ -329,6 +336,33 @@ private fun BuyerMatchRow(match: BuyerMatch) {
 
 @Composable
 fun SellerAnalyticsCard(analytics: SellerAnalytics) {
+    val isDark = isSystemInDarkTheme()
+    val cardContainer = if (isDark) {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+    } else {
+        MaterialTheme.colorScheme.secondaryContainer
+    }
+    val titleColor = if (isDark) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val metricSurfaceColor = if (isDark) {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+    }
+    val metricValueColor = if (isDark) {
+        MaterialTheme.colorScheme.onSurface
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val tipSurfaceColor = if (isDark) {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+    } else {
+        MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
+    }
+
     val performanceSummary = analytics.performanceSummary
         .takeIf { it.isNotBlank() && !it.contains("empty", ignoreCase = true) }
         ?: "Keep listings active and complete to improve your match quality."
@@ -342,7 +376,7 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = EcoSectionMint),
+        colors = CardDefaults.cardColors(containerColor = cardContainer),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
     ) {
         Column(
@@ -351,12 +385,12 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Your Performance", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = EcoDeepForest)
+            Text("Your Performance", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = titleColor)
 
             ScoreBar(
                 label = "Listing quality",
                 score = analytics.listingQualityScore,
-                color = EcoDeepForest
+                color = MaterialTheme.colorScheme.primary
             )
 
             Row(
@@ -365,7 +399,7 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
             ) {
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = EcoInteractionWhite.copy(alpha = 0.75f),
+                    color = metricSurfaceColor,
                     modifier = Modifier.weight(1f)
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
@@ -378,13 +412,13 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
                             text = analytics.activeListings.toString(),
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = EcoDeepForest
+                            color = metricValueColor
                         )
                     }
                 }
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = EcoInteractionWhite.copy(alpha = 0.75f),
+                    color = metricSurfaceColor,
                     modifier = Modifier.weight(1f)
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
@@ -397,7 +431,7 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
                             text = "${analytics.conversionRatePct}%",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = EcoDeepForest
+                            color = metricValueColor
                         )
                     }
                 }
@@ -411,7 +445,7 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
 
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = EcoSageGrowth.copy(alpha = 0.2f),
+                color = tipSurfaceColor,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -424,7 +458,7 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
                     Text(
                         text = "TIP",
                         fontSize = 11.sp,
-                        color = EcoDeepForest,
+                        color = titleColor,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
@@ -448,7 +482,7 @@ fun SellerAnalyticsCard(analytics: SellerAnalytics) {
                 )
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = EcoSageGrowth
+                    color = MaterialTheme.colorScheme.secondary
                 ) {
                     Text(
                         text = suggestedCategory,
@@ -532,6 +566,41 @@ fun TrustScoreCard(trust: TrustScore) {
                 lineHeight = 16.sp
             )
         }
+    }
+}
+
+@Composable
+private fun CircularPercentGraph(
+    percent: Int,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val clampedPercent = percent.coerceIn(0, 100)
+    val animatedProgress by animateFloatAsState(
+        targetValue = clampedPercent / 100f,
+        animationSpec = tween(durationMillis = 900),
+        label = "trust_graph_progress"
+    )
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            progress = { 1f },
+            modifier = Modifier.fillMaxSize(),
+            color = color.copy(alpha = 0.18f),
+            strokeWidth = 7.dp
+        )
+        CircularProgressIndicator(
+            progress = { animatedProgress },
+            modifier = Modifier.fillMaxSize(),
+            color = color,
+            strokeWidth = 7.dp
+        )
+        Text(
+            text = "$clampedPercent%",
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            color = color
+        )
     }
 }
 
