@@ -1,4 +1,13 @@
-# ScrapSetu — Complete Project Context
+# Team MARKKCORP
+
+# ScrapSetu — Complete Project Description and Architechture 
+
+## Team Members:- 
+Kushagra 2406037
+Krishna Agarwal 2406035
+Manglam Agarwal 2406130
+Rakshit Trivedi 2428039
+
 
 ## Overview
 B2B waste marketplace Android app connecting industrial waste suppliers with recyclers.
