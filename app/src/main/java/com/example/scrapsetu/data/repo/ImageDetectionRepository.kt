@@ -11,6 +11,7 @@ import com.example.scrapsetu.data.model.PriceSuggestion
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.request.get
 import io.ktor.client.request.headers
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -82,11 +83,16 @@ Return only JSON.
         val body =
             """{"contents":[{"parts":[{"inline_data":{"mime_type":"image/jpeg","data":"$base64Image"}},{"text":"$escaped"}]}],"generationConfig":{"temperature":0.1,"maxOutputTokens":400}}"""
 
-        val modelCandidates = listOf(
+        val discoveredModels = fetchGenerateContentModels()
+        val fallbackModels = listOf(
+            "gemini-2.5-flash",
             "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-flash-exp",
             "gemini-1.5-flash-latest",
             "gemini-1.5-flash"
         )
+        val modelCandidates = (discoveredModels + fallbackModels).distinct()
 
         var lastError: Throwable? = null
         for (model in modelCandidates) {
@@ -109,6 +115,26 @@ Return only JSON.
 
         throw IllegalStateException(lastError?.message ?: "No Gemini model accepted generateContent request")
     }
+
+    private suspend fun fetchGenerateContentModels(): List<String> = runCatching {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models?key=$geminiApiKey"
+        val payload = httpClient.get(url).body<JsonObject>()
+        val models = payload["models"] as? JsonArray ?: return emptyList()
+
+        models
+            .mapNotNull { it as? JsonObject }
+            .mapNotNull { model ->
+                val methods = (model["supportedGenerationMethods"] as? JsonArray)
+                    ?.mapNotNull { (it as? JsonElement)?.jsonPrimitive?.contentOrNull }
+                    .orEmpty()
+                if (!methods.any { it.equals("generateContent", ignoreCase = true) }) {
+                    null
+                } else {
+                    model["name"]?.jsonPrimitive?.contentOrNull
+                        ?.removePrefix("models/")
+                }
+            }
+    }.getOrDefault(emptyList())
 
     private suspend fun callGroqPricing(detection: ImageDetectionResult): PriceSuggestion {
         val prompt = """
